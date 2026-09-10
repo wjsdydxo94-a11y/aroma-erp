@@ -4,7 +4,10 @@ import io
 from fastapi import FastAPI, HTTPException, Response
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
+from database import engine, Base
 
+# 서버 구동 시 데이터베이스 테이블 자동 생성
+Base.metadata.create_all(bind=engine)
 app = FastAPI()
 
 # 데이터베이스 및 테이블 초기화
@@ -681,5 +684,46 @@ def export_csv():
         response = Response(content=output.getvalue(), media_type="text/csv")
         response.headers["Content-Disposition"] = "attachment; filename=batch_production_logs.csv"
         return response
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+        import pandas as pd
+from fastapi import File, UploadFile
+from database import SessionLocal, MaterialMaster
+
+@app.post("/api/v1/materials/upload")
+async def upload_materials(file: UploadFile = File(...)):
+    try:
+        df = pd.read_excel(file.file)
+        db = SessionLocal()
+        
+        for _, row in df.iterrows():
+            material_code = str(row.get("원료코드", ""))
+            if not material_code or material_code == "nan":
+                continue
+                
+            existing = db.query(MaterialMaster).filter(MaterialMaster.material_code == material_code).first()
+            
+            if existing:
+                existing.material_name_kr = str(row.get("원료명(국문)", ""))
+                existing.material_name_en = str(row.get("원료명(영문)", ""))
+                existing.cas_no = str(row.get("CAS 번호", ""))
+                existing.supplier = str(row.get("공급사", ""))
+                existing.unit = str(row.get("관리단위", "Kg"))
+                existing.category = str(row.get("원료분류", ""))
+            else:
+                new_material = MaterialMaster(
+                    material_code=material_code,
+                    material_name_kr=str(row.get("원료명(국문)", "")),
+                    material_name_en=str(row.get("원료명(영문)", "")),
+                    cas_no=str(row.get("CAS 번호", "")),
+                    supplier=str(row.get("공급사", "")),
+                    unit=str(row.get("관리단위", "Kg")),
+                    category=str(row.get("원료분류", ""))
+                )
+                db.add(new_material)
+                
+        db.commit()
+        db.close()
+        return {"status": "SUCCESS", "message": f"총 {len(df)}건의 원료 데이터가 성공적으로 적재되었습니다."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
