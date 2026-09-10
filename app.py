@@ -2,8 +2,7 @@ import sqlite3
 import csv
 import io
 import pandas as pd
-from fastapi import FastAPI, HTTPException, Response, File, UploadFile
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, HTTPException, Response, HTMLResponse, File, UploadFile
 from pydantic import BaseModel
 from database import engine, Base, SessionLocal, MaterialMaster
 
@@ -15,7 +14,6 @@ app = FastAPI()
 def init_db():
     conn = sqlite3.connect('erp_factory.db')
     cursor = conn.cursor()
-    # 1. 생산 투입 이력 테이블
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS batch_logs (
             log_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -26,7 +24,6 @@ def init_db():
             status TEXT
         )
     ''')
-    # 2. 주문서 테이블
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS orders (
             order_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -41,7 +38,6 @@ def init_db():
             status TEXT
         )
     ''')
-    # 3. 작업지시서 테이블
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS work_orders (
             work_order_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -59,7 +55,6 @@ def init_db():
 
 init_db()
 
-# 데이터 전송 규격 정의
 class BatchLogRequest(BaseModel):
     batch_id: str
     manifold_id: str
@@ -76,7 +71,7 @@ class OrderRequest(BaseModel):
     due_date: str
     remark: str = "정상"
 
-# 통합 메인 대시보드 (사이드바 + 운영 기능)
+# 통합 메인 대시보드 (주문, 생산, 원료 마스터 통합 UI)
 @app.get("/", response_class=HTMLResponse)
 def dashboard():
     return """
@@ -84,7 +79,7 @@ def dashboard():
     <html lang="ko">
     <head>
         <meta charset="UTF-8">
-        <title>Aroma Resource ERP System</title>
+        <title>Aromaresource ERP System</title>
         <style>
             * { box-sizing: border-box; margin: 0; padding: 0; }
             body { display: flex; height: 100vh; overflow: hidden; background-color: #F8FAFC; font-family: 'Pretendard', -apple-system, sans-serif; }
@@ -121,7 +116,7 @@ def dashboard():
             .aroma-sidebar summary:hover { background-color: rgba(0, 168, 255, 0.08); color: #00A8FF; }
             .aroma-sidebar ul { list-style: none; padding: 4px 0 6px 14px; margin: 0; }
             .aroma-sidebar li a {
-              display: block; padding: 7px 12px; font-size: 12.5px; color: #94A3B8; text-decoration: none; border-radius: 4px; transition: all 0.2s ease;
+              display: block; padding: 7px 12px; font-size: 12.5px; color: #94A3B8; text-decoration: none; border-radius: 4px; transition: all 0.2s ease; cursor: pointer;
             }
             .aroma-sidebar li a:hover { color: #FFFFFF; background-color: rgba(0, 168, 255, 0.12); padding-left: 15px; }
             .aroma-sidebar li a.active {
@@ -131,6 +126,9 @@ def dashboard():
 
             /* 메인 콘텐츠 영역 */
             .main-content { flex: 1; padding: 30px; overflow-y: auto; }
+            .tab-section { display: none; }
+            .tab-section.active { display: block; }
+
             h1 { color: #1e293b; font-size: 22px; margin-bottom: 5px; }
             h2 { color: #334155; font-size: 16px; margin-top: 0; border-bottom: 2px solid #cbd5e1; padding-bottom: 8px; }
             p { color: #64748b; margin-top: 0; font-size: 13px; }
@@ -150,7 +148,6 @@ def dashboard():
             th, td { padding: 10px 12px; border-bottom: 1px solid #e2e8f0; text-align: left; }
             th { background-color: #1E242B; color: white; font-weight: 600; }
             tr:hover { background-color: #f8fafc; }
-            .clickable-no { color: #0077FF; cursor: pointer; font-weight: bold; text-decoration: underline; }
             .badge { background: #3b82f6; color: white; padding: 3px 6px; border-radius: 4px; font-size: 11px; }
             .badge-success { background: #22c55e; }
             .badge-progress { background: #d97706; }
@@ -169,121 +166,149 @@ def dashboard():
             <details>
               <summary>견적서 관리</summary>
               <ul>
-                <li><a href="#">견적 입력</a></li>
-                <li><a href="#">견적 조회 및 현황</a></li>
+                <li><a onclick="switchTab('ordersTab')">견적 입력/조회</a></li>
               </ul>
             </details>
             <details open>
               <summary>주문서 관리</summary>
               <ul>
-                <li><a href="#" class="active">주문 등록 및 조회</a></li>
+                <li><a class="active" onclick="switchTab('ordersTab')">주문 등록 및 조회</a></li>
               </ul>
             </details>
             <details>
               <summary>판매 관리</summary>
               <ul>
-                <li><a href="#">판매 조회</a></li>
-                <li><a href="#">판매 입력</a></li>
-                <li><a href="#">거래명세서 인쇄</a></li>
+                <li><a onclick="switchTab('ordersTab')">판매 조회</a></li>
               </ul>
             </details>
             <details>
               <summary>입고 / 구매</summary>
               <ul>
-                <li><a href="#">발주 관리</a></li>
-                <li><a href="#">입고 등록 및 검수</a></li>
+                <li><a onclick="switchTab('ordersTab')">발주 및 입고</a></li>
               </ul>
             </details>
-            <details>
+            <details open>
               <summary>원료 마스터 관리</summary>
               <ul>
-                <li><a href="/docs" target="_blank">원료 마스터 일괄 업로드</a></li>
+                <li><a onclick="switchTab('materialsTab')">원료 리스트 조회 (7,507건)</a></li>
+                <li><a onclick="switchTab('materialsTab')">원료 마스터 업로드</a></li>
               </ul>
             </details>
             <details>
               <summary>생산 및 배치</summary>
               <ul>
-                <li><a href="#">작업 지시서</a></li>
-                <li><a href="#">배치 투입 이력</a></li>
+                <li><a onclick="switchTab('ordersTab')">작업 지시 및 투입 이력</a></li>
               </ul>
             </details>
           </nav>
         </aside>
 
         <main class="main-content">
-            <div class="card">
-                <h1>아로마리소스 통합 ERP 시스템</h1>
-                <p>영업 주문 관리, 작업지시 발행 및 현장 생산 공정 통합 제어 패널 (원료 마스터 7,507건 적재 완료)</p>
+            <!-- [탭 1] 주문 및 생산 관리 탭 -->
+            <div id="ordersTab" class="tab-section active">
+                <div class="card">
+                    <h1>아로마리소스 통합 ERP 시스템</h1>
+                    <p>영업 주문 관리, 작업지시 발행 및 현장 생산 공정 통합 제어 패널</p>
+                </div>
+
+                <div class="card">
+                    <h2>1. 주문서(발주서) 등록 및 관리</h2>
+                    <form id="orderForm" onsubmit="submitOrder(event)">
+                        <div class="form-grid">
+                            <div class="form-group"><label>일자-No.</label><input type="text" id="order_no" value="2026/09/10 -1" required></div>
+                            <div class="form-group"><label>거래처명</label><input type="text" id="client_name" value="에이치비티 주식회사" required></div>
+                            <div class="form-group"><label>담당 사원명</label><input type="text" id="manager_id" value="전용태" required></div>
+                            <div class="form-group"><label>품목명 요약</label><input type="text" id="product_summary" value="TROPICAL AR-4094" required></div>
+                            <div class="form-group"><label>주문수량합계 (kg)</label><input type="number" step="0.001" id="order_qty" value="2000.000" required></div>
+                            <div class="form-group"><label>주문금액합계 (원)</label><input type="number" id="order_amount" value="0" required></div>
+                            <div class="form-group"><label>납기일자</label><input type="date" id="due_date" value="2026-09-25" required></div>
+                            <div class="form-group"><label>비고</label><input type="text" id="remark" value="정상"></div>
+                        </div>
+                        <div class="btn-group" id="orderBtnContainer">
+                            <button type="submit" id="orderSubmitBtn" class="btn-order">신규 주문서 등록</button>
+                        </div>
+                    </form>
+
+                    <h3 style="margin-top: 20px; font-size: 14px; color: #334155;">등록된 주문서 목록</h3>
+                    <table>
+                        <thead>
+                            <tr><th>일자-No.</th><th>거래처명</th><th>담당명</th><th>품목명(요약)</th><th>주문수량</th><th>주문금액</th><th>납기일자</th><th>비고</th><th>상태</th><th>작업지시</th><th>관리</th></tr>
+                        </thead>
+                        <tbody id="orderTableBody"><tr><td colspan="11" style="text-align: center;">불러오는 중...</td></tr></tbody>
+                    </table>
+                </div>
+
+                <div class="card">
+                    <h2>2. 현장 작업지시서 (Work Orders)</h2>
+                    <table>
+                        <thead>
+                            <tr><th>지시 ID</th><th>주문번호</th><th>거래처명</th><th>품목명(요약)</th><th>생산 목표량</th><th>상태</th><th>관리</th></tr>
+                        </thead>
+                        <tbody id="workOrderTableBody"><tr><td colspan="7" style="text-align: center;">불러오는 중...</td></tr></tbody>
+                    </table>
+                </div>
+
+                <div class="card">
+                    <h2>3. 현장 매니폴드 생산 투입 로깅</h2>
+                    <form id="logForm" onsubmit="submitLog(event)">
+                        <div class="form-grid">
+                            <div class="form-group"><label>배치 번호</label><input type="text" id="batch_id" value="BATCH-2026-09" required></div>
+                            <div class="form-group"><label>매니폴드 ID</label><input type="text" id="manifold_id" value="MF-01" required></div>
+                            <div class="form-group"><label>투입 중량 (kg)</label><input type="number" step="0.001" id="input_qty" value="15.250" required></div>
+                            <div class="form-group"><label>작업자 ID</label><input type="text" id="operator_id" value="JEON" required></div>
+                        </div>
+                        <div class="btn-group">
+                            <button type="submit" class="btn-submit">생산 데이터 전송</button>
+                            <a href="/api/v1/production/export/csv" class="btn-export">ISO 감사용 CSV 다운로드</a>
+                        </div>
+                    </form>
+
+                    <h3 style="margin-top: 20px; font-size: 14px; color: #334155;">실시간 투입 이력</h3>
+                    <table>
+                        <thead>
+                            <tr><th>Log ID</th><th>Batch ID</th><th>Manifold ID</th><th>Input Qty</th><th>Operator</th><th>Status</th></tr>
+                        </thead>
+                        <tbody id="logTableBody"><tr><td colspan="6" style="text-align: center;">불러오는 중...</td></tr></tbody>
+                    </table>
+                </div>
             </div>
 
-            <!-- 주문서 등록 및 수정 -->
-            <div class="card">
-                <h2>1. 주문서(발주서) 등록 및 관리</h2>
-                <form id="orderForm" onsubmit="submitOrder(event)">
-                    <div class="form-grid">
-                        <div class="form-group"><label>일자-No.</label><input type="text" id="order_no" value="2026/09/10 -1" required></div>
-                        <div class="form-group"><label>거래처명</label><input type="text" id="client_name" value="에이치비티 주식회사" required></div>
-                        <div class="form-group"><label>담당 사원명</label><input type="text" id="manager_id" value="전용태" required></div>
-                        <div class="form-group"><label>품목명 요약</label><input type="text" id="product_summary" value="TROPICAL AR-4094" required></div>
-                        <div class="form-group"><label>주문수량합계 (kg)</label><input type="number" step="0.001" id="order_qty" value="2000.000" required></div>
-                        <div class="form-group"><label>주문금액합계 (원)</label><input type="number" id="order_amount" value="0" required></div>
-                        <div class="form-group"><label>납기일자</label><input type="date" id="due_date" value="2026-09-25" required></div>
-                        <div class="form-group"><label>비고</label><input type="text" id="remark" value="정상"></div>
-                    </div>
-                    <div class="btn-group" id="orderBtnContainer">
-                        <button type="submit" id="orderSubmitBtn" class="btn-order">신규 주문서 등록</button>
-                    </div>
-                </form>
+            <!-- [탭 2] 원료 마스터 관리 및 업로드 탭 -->
+            <div id="materialsTab" class="tab-section">
+                <div class="card">
+                    <h1>원료 마스터 관리 및 품목등록 리스트</h1>
+                    <p>등록된 7,507건의 원료 데이터를 조회하고 엑셀 파일을 일괄 업로드할 수 있습니다.</p>
+                </div>
 
-                <h3 style="margin-top: 20px; font-size: 14px; color: #334155;">등록된 주문서 목록</h3>
-                <table>
-                    <thead>
-                        <tr>
-                            <th>일자-No.</th><th>거래처명</th><th>담당명</th><th>품목명(요약)</th><th>주문수량</th><th>주문금액</th><th>납기일자</th><th>비고</th><th>상태</th><th>작업지시</th><th>관리</th>
-                        </tr>
-                    </thead>
-                    <tbody id="orderTableBody"><tr><td colspan="11" style="text-align: center;">불러오는 중...</td></tr></tbody>
-                </table>
-            </div>
+                <div class="card">
+                    <h2>원료 마스터 일괄 업로드 (Excel)</h2>
+                    <form onsubmit="uploadExcel(event)" style="display: flex; gap: 15px; align-items: center; margin-top: 15px;">
+                        <input type="file" id="excelFile" accept=".xlsx, .xls" required style="padding: 6px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 13px;">
+                        <button type="submit" class="btn-submit">엑셀 파일 업로드 및 적재</button>
+                    </form>
+                </div>
 
-            <!-- 현장 작업지시서 -->
-            <div class="card">
-                <h2>2. 현장 작업지시서 (Work Orders)</h2>
-                <table>
-                    <thead>
-                        <tr><th>지시 ID</th><th>주문번호</th><th>거래처명</th><th>품목명(요약)</th><th>생산 목표량</th><th>상태</th><th>관리</th></tr>
-                    </thead>
-                    <tbody id="workOrderTableBody"><tr><td colspan="7" style="text-align: center;">불러오는 중...</td></tr></tbody>
-                </table>
-            </div>
-
-            <!-- 매니폴드 생산 투입 로깅 -->
-            <div class="card">
-                <h2>3. 현장 매니폴드 생산 투입 로깅</h2>
-                <form id="logForm" onsubmit="submitLog(event)">
-                    <div class="form-grid">
-                        <div class="form-group"><label>배치 번호</label><input type="text" id="batch_id" value="BATCH-2026-09" required></div>
-                        <div class="form-group"><label>매니폴드 ID</label><input type="text" id="manifold_id" value="MF-01" required></div>
-                        <div class="form-group"><label>투입 중량 (kg)</label><input type="number" step="0.001" id="input_qty" value="15.250" required></div>
-                        <div class="form-group"><label>작업자 ID</label><input type="text" id="operator_id" value="JEON" required></div>
-                    </div>
-                    <div class="btn-group">
-                        <button type="submit" class="btn-submit">생산 데이터 전송</button>
-                        <a href="/api/v1/production/export/csv" class="btn-export">ISO 감사용 CSV 다운로드</a>
-                    </div>
-                </form>
-
-                <h3 style="margin-top: 20px; font-size: 14px; color: #334155;">실시간 투입 이력</h3>
-                <table>
-                    <thead>
-                        <tr><th>Log ID</th><th>Batch ID</th><th>Manifold ID</th><th>Input Qty</th><th>Operator</th><th>Status</th></tr>
-                    </thead>
-                    <tbody id="logTableBody"><tr><td colspan="6" style="text-align: center;">불러오는 중...</td></tr></tbody>
-                </table>
+                <div class="card">
+                    <h2>품목등록 리스트 (Database 조회)</h2>
+                    <table>
+                        <thead>
+                            <tr><th>No</th><th>원료코드</th><th>국문 원료명</th><th>영문 원료명</th><th>CAS 번호</th><th>공급사</th><th>관리단위</th><th>분류</th></tr>
+                        </thead>
+                        <tbody id="materialTableBody"><tr><td colspan="8" style="text-align: center;">원료 데이터를 불러오는 중...</td></tr></tbody>
+                    </table>
+                </div>
             </div>
         </main>
 
         <script>
+            function switchTab(tabId) {
+                document.querySelectorAll('.tab-section').forEach(el => el.classList.remove('active'));
+                document.getElementById(tabId).classList.add('active');
+                if (tabId === 'materialsTab') {
+                    loadMaterials();
+                }
+            }
+
             let editingOrderId = null;
 
             function loadOrders() {
@@ -297,7 +322,7 @@ def dashboard():
                     data.data.forEach(row => {
                         const tr = document.createElement('tr');
                         tr.innerHTML = `
-                            <td><span class="clickable-no" onclick='prepareEdit(${JSON.stringify(row)})'>${row.order_no}</span></td>
+                            <td><span style="color:#0077FF; cursor:pointer; font-weight:bold;" onclick='prepareEdit(${JSON.stringify(row)})'>${row.order_no}</span></td>
                             <td>${row.client_name}</td><td>${row.manager_id}</td><td>${row.product_summary}</td>
                             <td>${row.order_qty.toLocaleString(undefined, {minimumFractionDigits: 3})} kg</td>
                             <td>${row.order_amount.toLocaleString()} 원</td><td>${row.due_date}</td><td>${row.remark}</td>
@@ -329,6 +354,49 @@ def dashboard():
                         tbody.appendChild(tr);
                     });
                 });
+            }
+
+            function loadMaterials() {
+                fetch('/api/v1/materials').then(res => res.json()).then(data => {
+                    const tbody = document.getElementById('materialTableBody');
+                    tbody.innerHTML = '';
+                    if (!data.data || data.data.length === 0) {
+                        tbody.innerHTML = '<tr><td colspan="8" style="text-align: center;">등록된 원료 데이터가 없습니다.</td></tr>';
+                        return;
+                    }
+                    data.data.forEach((row, index) => {
+                        const tr = document.createElement('tr');
+                        tr.innerHTML = `
+                            <td>${index + 1}</td>
+                            <td><strong>${row.material_code}</strong></td>
+                            <td>${row.material_name_kr}</td>
+                            <td>${row.material_name_en}</td>
+                            <td>${row.cas_no}</td>
+                            <td>${row.supplier}</td>
+                            <td>${row.unit}</td>
+                            <td>${row.category}</td>
+                        `;
+                        tbody.appendChild(tr);
+                    });
+                });
+            }
+
+            function uploadExcel(event) {
+                event.preventDefault();
+                const fileInput = document.getElementById('excelFile');
+                if (fileInput.files.length === 0) { alert("파일을 선택해 주세요."); return; }
+                const formData = new FormData();
+                formData.append("file", fileInput.files[0]);
+
+                fetch('/api/v1/materials/upload', { method: 'POST', body: formData })
+                .then(res => res.json()).then(resData => {
+                    if (resData.status === "SUCCESS") {
+                        alert(resData.message);
+                        loadMaterials();
+                    } else {
+                        alert("업로드 실패: " + JSON.stringify(resData));
+                    }
+                }).catch(err => alert("통신 에러: " + err));
             }
 
             function createWorkOrder(orderId) {
@@ -592,6 +660,28 @@ def export_csv():
         response = Response(content=output.getvalue(), media_type="text/csv")
         response.headers["Content-Disposition"] = "attachment; filename=batch_production_logs.csv"
         return response
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# 원료 마스터 리스트 조회 API
+@app.get("/api/v1/materials")
+def get_materials():
+    try:
+        db = SessionLocal()
+        materials = db.query(MaterialMaster).all()
+        db.close()
+        data = [
+            {
+                "material_code": m.material_code,
+                "material_name_kr": m.material_name_kr,
+                "material_name_en": m.material_name_en,
+                "cas_no": m.cas_no,
+                "supplier": m.supplier,
+                "unit": m.unit,
+                "category": m.category
+            } for m in materials
+        ]
+        return {"status": "SUCCESS", "count": len(data), "data": data}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
