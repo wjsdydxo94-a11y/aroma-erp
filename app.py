@@ -405,7 +405,18 @@ def dashboard():
             <div id="bom-tab" class="tab-content">
                 <div class="card">
                     <h1>BOM(소요량) 조회 및 관리</h1>
-                    <p>등록된 완제품 품목을 클릭하거나 조회하여 내부 원료 리스트 및 소요량을 확인합니다.</p>
+                    <p>신규 완제품 BOM 처방 엑셀 파일을 업로드하거나 등록된 품목을 조회합니다.</p>
+                </div>
+
+                <div class="card">
+                    <h2>BOM 신규 등록 및 엑셀 일괄 업로드</h2>
+                    <form onsubmit="uploadBomExcel(event)" style="margin-top: 15px;" class="form-grid">
+                        <div class="form-group"><label>생산품목 코드/명</label><input type="text" id="reg_product_code" placeholder="예: 1000011096 FILLER-SE1406" required></div>
+                        <div class="form-group"><label>생산공정</label><input type="text" id="reg_process_code" value="00002"></div>
+                        <div class="form-group"><label>BOM버전</label><input type="text" id="reg_bom_version" value="2"></div>
+                        <div class="form-group"><label>BOM 엑셀 파일</label><input type="file" id="bomExcelFile" accept=".xlsx, .xls" required style="padding: 4px; border: 1px solid #cbd5e1; border-radius: 4px; background: #fff; font-size: 12px;"></div>
+                        <div class="form-group" style="display:flex; align-items:flex-end;"><button type="submit" class="btn-order" style="width:100%; padding: 9px;">BOM 등록 및 업로드 실행</button></div>
+                    </form>
                 </div>
 
                 <div class="card">
@@ -422,20 +433,13 @@ def dashboard():
                             </tr>
                         </thead>
                         <tbody id="bomMasterTableBody">
-                            <tr><td colspan="6" style="text-align: center;">BOM 마스터 목록을 불러오는 중...</td></tr>
+                            <tr><td colspan="6" style="text-align: center;">등록된 BOM 완제품 품목이 없습니다.</td></tr>
                         </tbody>
                     </table>
                 </div>
 
                 <div class="card" id="bomDetailCard" style="display:none;">
-                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
-                        <h2 id="bomDetailTitle">선택된 품목 BOM 구성 원료 리스트</h2>
-                        <form onsubmit="uploadBomExcel(event)" style="display: flex; gap: 10px; align-items: center;">
-                            <input type="file" id="bomExcelFile" accept=".xlsx, .xls" required style="padding: 4px; border: 1px solid #cbd5e1; border-radius: 4px; background: #fff; font-size: 12px;">
-                            <button type="submit" class="btn-order" style="padding: 6px 12px; font-size: 12px;">BOM 엑셀 업로드</button>
-                        </form>
-                    </div>
-
+                    <h2 id="bomDetailTitle" style="margin-bottom:15px;">선택된 품목 BOM 구성 원료 리스트</h2>
                     <table>
                         <thead>
                             <tr>
@@ -507,8 +511,6 @@ def dashboard():
             let currentPage = 1;
             const pageSize = 30;
             let currentSearch = '';
-            let selectedBomProductCode = '';
-            let selectedBomVersion = '2';
 
             function switchTab(tabId) {
                 document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
@@ -569,7 +571,7 @@ def dashboard():
                     const tbody = document.getElementById('bomMasterTableBody');
                     tbody.innerHTML = '';
                     if (!data.data || data.data.length === 0) {
-                        tbody.innerHTML = '<tr><td colspan="6" style="text-align: center;">등록된 BOM 완제품 품목이 없습니다.</td></tr>';
+                        tbody.innerHTML = '<tr><td colspan="6" style="text-align: center;">등록된 BOM 완제품 품목이 없습니다. 상단에서 엑셀을 업로드해 주세요.</td></tr>';
                         return;
                     }
                     data.data.forEach(row => {
@@ -588,8 +590,6 @@ def dashboard():
             }
 
             function selectBomProduct(productCode, version) {
-                selectedBomProductCode = productCode;
-                selectedBomVersion = version;
                 document.getElementById('bomDetailCard').style.display = 'block';
                 document.getElementById('bomDetailTitle').innerText = `품목 [${productCode}] BOM 구성 원료 리스트`;
                 
@@ -599,7 +599,7 @@ def dashboard():
                     const tbody = document.getElementById('bomTableBody');
                     tbody.innerHTML = '';
                     if (!data.items || data.items.length === 0) {
-                        tbody.innerHTML = '<tr><td colspan="9" style="text-align: center;">해당 품목의 원료 구성 내역이 없습니다. (엑셀 업로드를 진행해 주세요)</td></tr>';
+                        tbody.innerHTML = '<tr><td colspan="9" style="text-align: center;">해당 품목의 원료 구성 내역이 없습니다.</td></tr>';
                         return;
                     }
                     data.items.forEach((item, index) => {
@@ -622,20 +622,24 @@ def dashboard():
 
             function uploadBomExcel(event) {
                 event.preventDefault();
-                if (!selectedBomProductCode) {
-                    alert("상단 마스터 리스트에서 먼저 품목을 선택(조회)해 주세요.");
+                const productCode = document.getElementById('reg_product_code').value.trim();
+                const bomVersion = document.getElementById('reg_bom_version').value.trim();
+                const fileInput = document.getElementById('bomExcelFile');
+                
+                if (!productCode) {
+                    alert("생산품목 코드를 입력해 주세요.");
                     return;
                 }
-                const fileInput = document.getElementById('bomExcelFile');
                 if (fileInput.files.length === 0) {
                     alert("업로드할 BOM 엑셀 파일을 선택해 주세요.");
                     return;
                 }
+                
                 const formData = new FormData();
                 formData.append("file", fileInput.files[0]);
 
-                alert(`품목 [${selectedBomProductCode}]의 BOM 데이터를 업로드합니다...`);
-                fetch(`/api/v1/boms/upload?product_code=${encodeURIComponent(selectedBomProductCode)}&bom_version=${encodeURIComponent(selectedBomVersion)}`, {
+                alert(`품목 [${productCode}]의 BOM 데이터를 등록합니다...`);
+                fetch(`/api/v1/boms/upload?product_code=${encodeURIComponent(productCode)}&bom_version=${encodeURIComponent(bomVersion)}`, {
                     method: 'POST',
                     body: formData
                 })
@@ -643,8 +647,8 @@ def dashboard():
                 .then(resData => {
                     if (resData.status === "SUCCESS") {
                         alert(resData.message);
-                        selectBomProduct(selectedBomProductCode, selectedBomVersion);
                         loadBomMasterList();
+                        selectBomProduct(productCode, bomVersion);
                     } else {
                         alert("업로드 실패: " + JSON.stringify(resData));
                     }
