@@ -2,7 +2,7 @@ import sqlite3
 import csv
 import io
 import pandas as pd
-from fastapi import FastAPI, HTTPException, Response, HTMLResponse, File, UploadFile
+from fastapi import FastAPI, HTTPException, Response, HTMLResponse, File, UploadFile, Query
 from pydantic import BaseModel
 from database import engine, Base, SessionLocal, MaterialMaster
 
@@ -71,7 +71,7 @@ class OrderRequest(BaseModel):
     due_date: str
     remark: str = "정상"
 
-# 통합 메인 대시보드 (주문, 생산, 원료 마스터 통합 UI)
+# 통합 메인 대시보드 (사이드바 + 주문/생산 + 원료 마스터 관리 UI)
 @app.get("/", response_class=HTMLResponse)
 def dashboard():
     return """
@@ -79,7 +79,7 @@ def dashboard():
     <html lang="ko">
     <head>
         <meta charset="UTF-8">
-        <title>Aromaresource ERP System</title>
+        <title>Aroma Resource ERP System</title>
         <style>
             * { box-sizing: border-box; margin: 0; padding: 0; }
             body { display: flex; height: 100vh; overflow: hidden; background-color: #F8FAFC; font-family: 'Pretendard', -apple-system, sans-serif; }
@@ -116,7 +116,7 @@ def dashboard():
             .aroma-sidebar summary:hover { background-color: rgba(0, 168, 255, 0.08); color: #00A8FF; }
             .aroma-sidebar ul { list-style: none; padding: 4px 0 6px 14px; margin: 0; }
             .aroma-sidebar li a {
-              display: block; padding: 7px 12px; font-size: 12.5px; color: #94A3B8; text-decoration: none; border-radius: 4px; transition: all 0.2s ease; cursor: pointer;
+              display: block; padding: 7px 12px; font-size: 12.5px; color: #94A3B8; text-decoration: none; border-radius: 4px; cursor: pointer; transition: all 0.2s ease;
             }
             .aroma-sidebar li a:hover { color: #FFFFFF; background-color: rgba(0, 168, 255, 0.12); padding-left: 15px; }
             .aroma-sidebar li a.active {
@@ -126,9 +126,9 @@ def dashboard():
 
             /* 메인 콘텐츠 영역 */
             .main-content { flex: 1; padding: 30px; overflow-y: auto; }
-            .tab-section { display: none; }
-            .tab-section.active { display: block; }
-
+            .tab-content { display: none; }
+            .tab-content.active { display: block; }
+            
             h1 { color: #1e293b; font-size: 22px; margin-bottom: 5px; }
             h2 { color: #334155; font-size: 16px; margin-top: 0; border-bottom: 2px solid #cbd5e1; padding-bottom: 8px; }
             p { color: #64748b; margin-top: 0; font-size: 13px; }
@@ -138,16 +138,16 @@ def dashboard():
             .form-group input { width: 100%; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; box-sizing: border-box; font-size: 13px; }
             .btn-group { display: flex; gap: 10px; margin-top: 15px; }
             .btn-submit { background: #2563eb; color: white; border: none; padding: 8px 16px; font-weight: 600; border-radius: 6px; cursor: pointer; font-size: 13px; }
-            .btn-submit:hover { background: #1d4ed8; }
             .btn-order { background: #0077FF; color: white; border: none; padding: 8px 16px; font-weight: 600; border-radius: 6px; cursor: pointer; font-size: 13px; }
-            .btn-order:hover { background: #005bb5; }
             .btn-action { background: #0284c7; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; font-size: 11px; }
             .btn-delete { background: #ef4444; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; font-size: 11px; }
             .btn-export { background: #10b981; color: white; border: none; padding: 8px 16px; font-weight: 600; border-radius: 6px; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; font-size: 13px; }
+            
             table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 13px; }
             th, td { padding: 10px 12px; border-bottom: 1px solid #e2e8f0; text-align: left; }
             th { background-color: #1E242B; color: white; font-weight: 600; }
             tr:hover { background-color: #f8fafc; }
+            .clickable-no { color: #0077FF; cursor: pointer; font-weight: bold; text-decoration: underline; }
             .badge { background: #3b82f6; color: white; padding: 3px 6px; border-radius: 4px; font-size: 11px; }
             .badge-success { background: #22c55e; }
             .badge-progress { background: #d97706; }
@@ -166,38 +166,38 @@ def dashboard():
             <details>
               <summary>견적서 관리</summary>
               <ul>
-                <li><a onclick="switchTab('ordersTab')">견적 입력/조회</a></li>
+                <li><a onclick="switchTab('orders-tab')">견적 입력/조회</a></li>
               </ul>
             </details>
             <details open>
               <summary>주문서 관리</summary>
               <ul>
-                <li><a class="active" onclick="switchTab('ordersTab')">주문 등록 및 조회</a></li>
+                <li><a class="active" onclick="switchTab('orders-tab')">주문 등록 및 조회</a></li>
               </ul>
             </details>
             <details>
               <summary>판매 관리</summary>
               <ul>
-                <li><a onclick="switchTab('ordersTab')">판매 조회</a></li>
+                <li><a onclick="switchTab('orders-tab')">판매 조회 및 입력</a></li>
               </ul>
             </details>
             <details>
               <summary>입고 / 구매</summary>
               <ul>
-                <li><a onclick="switchTab('ordersTab')">발주 및 입고</a></li>
+                <li><a onclick="switchTab('orders-tab')">발주 및 입고 관리</a></li>
               </ul>
             </details>
             <details open>
               <summary>원료 마스터 관리</summary>
               <ul>
-                <li><a onclick="switchTab('materialsTab')">원료 리스트 조회 (7,507건)</a></li>
-                <li><a onclick="switchTab('materialsTab')">원료 마스터 업로드</a></li>
+                <li><a onclick="switchTab('materials-tab')">원료 리스트 조회 (7,507건)</a></li>
+                <li><a onclick="switchTab('materials-tab')">원료 마스터 업로드</a></li>
               </ul>
             </details>
             <details>
               <summary>생산 및 배치</summary>
               <ul>
-                <li><a onclick="switchTab('ordersTab')">작업 지시 및 투입 이력</a></li>
+                <li><a onclick="switchTab('orders-tab')">작업 지시서 및 투입이력</a></li>
               </ul>
             </details>
           </nav>
@@ -205,7 +205,7 @@ def dashboard():
 
         <main class="main-content">
             <!-- [탭 1] 주문 및 생산 관리 탭 -->
-            <div id="ordersTab" class="tab-section active">
+            <div id="orders-tab" class="tab-content active">
                 <div class="card">
                     <h1>아로마리소스 통합 ERP 시스템</h1>
                     <p>영업 주문 관리, 작업지시 발행 및 현장 생산 공정 통합 제어 패널</p>
@@ -274,42 +274,113 @@ def dashboard():
             </div>
 
             <!-- [탭 2] 원료 마스터 관리 및 업로드 탭 -->
-            <div id="materialsTab" class="tab-section">
+            <div id="materials-tab" class="tab-content">
                 <div class="card">
-                    <h1>원료 마스터 관리 및 품목등록 리스트</h1>
-                    <p>등록된 7,507건의 원료 데이터를 조회하고 엑셀 파일을 일괄 업로드할 수 있습니다.</p>
+                    <h1>원료 마스터 관리 (Raw Material Master)</h1>
+                    <p>아로마리소스 향료 원료 품목 리스트 조회 및 엑셀 일괄 업로드 관리</p>
                 </div>
 
+                <!-- 엑셀 업로드 박스 -->
                 <div class="card">
-                    <h2>원료 마스터 일괄 업로드 (Excel)</h2>
-                    <form onsubmit="uploadExcel(event)" style="display: flex; gap: 15px; align-items: center; margin-top: 15px;">
-                        <input type="file" id="excelFile" accept=".xlsx, .xls" required style="padding: 6px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 13px;">
-                        <button type="submit" class="btn-submit">엑셀 파일 업로드 및 적재</button>
+                    <h2>원료 마스터 엑셀 일괄 업로드</h2>
+                    <p style="margin-top: 5px; color: #64748b;">원료코드가 포함된 엑셀 파일을 업로드하면 기존 데이터가 자동 갱신되거나 신규 등록됩니다.</p>
+                    <form onsubmit="uploadExcel(event)" style="margin-top: 15px; display: flex; gap: 10px; align-items: center;">
+                        <input type="file" id="excelFile" accept=".xlsx, .xls" required style="padding: 6px; border: 1px solid #cbd5e1; border-radius: 6px; background: #fff;">
+                        <button type="submit" class="btn-order">엑셀 파일 업로드 실행</button>
                     </form>
                 </div>
 
+                <!-- 품목 등록 리스트 조회 테이블 -->
                 <div class="card">
-                    <h2>품목등록 리스트 (Database 조회)</h2>
+                    <h2>품목등록 리스트 (데이터베이스 연동)</h2>
                     <table>
                         <thead>
-                            <tr><th>No</th><th>원료코드</th><th>국문 원료명</th><th>영문 원료명</th><th>CAS 번호</th><th>공급사</th><th>관리단위</th><th>분류</th></tr>
+                            <tr>
+                                <th>원료코드</th>
+                                <th>원료명(국문)</th>
+                                <th>원료명(영문)</th>
+                                <th>CAS No.</th>
+                                <th>공급사</th>
+                                <th>관리단위</th>
+                                <th>원료분류</th>
+                            </tr>
                         </thead>
-                        <tbody id="materialTableBody"><tr><td colspan="8" style="text-align: center;">원료 데이터를 불러오는 중...</td></tr></tbody>
+                        <tbody id="materialTableBody">
+                            <tr><td colspan="7" style="text-align: center;">원료 데이터를 불러오는 중...</td></tr>
+                        </tbody>
                     </table>
                 </div>
             </div>
         </main>
 
         <script>
+            let editingOrderId = null;
+
             function switchTab(tabId) {
-                document.querySelectorAll('.tab-section').forEach(el => el.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
                 document.getElementById(tabId).classList.add('active');
-                if (tabId === 'materialsTab') {
+                if (tabId === 'materials-tab') {
                     loadMaterials();
                 }
             }
 
-            let editingOrderId = null;
+            function loadMaterials() {
+                fetch('/api/v1/materials')
+                .then(res => res.json())
+                .then(data => {
+                    const tbody = document.getElementById('materialTableBody');
+                    tbody.innerHTML = '';
+                    if (!data.data || data.data.length === 0) {
+                        tbody.innerHTML = '<tr><td colspan="7" style="text-align: center;">등록된 원료 데이터가 없습니다.</td></tr>';
+                        return;
+                    }
+                    data.data.forEach(row => {
+                        const tr = document.createElement('tr');
+                        tr.innerHTML = `
+                            <td><strong>${row.material_code || ''}</strong></td>
+                            <td>${row.material_name_kr || ''}</td>
+                            <td>${row.material_name_en || ''}</td>
+                            <td>${row.cas_no || ''}</td>
+                            <td>${row.supplier || ''}</td>
+                            <td>${row.unit || 'Kg'}</td>
+                            <td>${row.category || ''}</td>
+                        `;
+                        tbody.appendChild(tr);
+                    });
+                })
+                .catch(err => {
+                    document.getElementById('materialTableBody').innerHTML = '<tr><td colspan="7" style="text-align: center; color: red;">데이터 로드 실패</td></tr>';
+                });
+            }
+
+            function uploadExcel(event) {
+                event.preventDefault();
+                const fileInput = document.getElementById('excelFile');
+                if (fileInput.files.length === 0) {
+                    alert("업로드할 엑셀 파일을 선택해 주세요.");
+                    return;
+                }
+                const formData = new FormData();
+                formData.append("file", fileInput.files[0]);
+
+                alert("업로드를 진행합니다. 잠시만 기다려 주세요.");
+                fetch('/api/v1/materials/upload', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(res => res.json())
+                .then(resData => {
+                    if (resData.status === "SUCCESS") {
+                        alert(resData.message);
+                        loadMaterials();
+                    } else {
+                        alert("업로드 실패: " + JSON.stringify(resData));
+                    }
+                })
+                .catch(err => {
+                    alert("통신 에러 발생: " + err);
+                });
+            }
 
             function loadOrders() {
                 fetch('/api/v1/orders').then(res => res.json()).then(data => {
@@ -322,7 +393,7 @@ def dashboard():
                     data.data.forEach(row => {
                         const tr = document.createElement('tr');
                         tr.innerHTML = `
-                            <td><span style="color:#0077FF; cursor:pointer; font-weight:bold;" onclick='prepareEdit(${JSON.stringify(row)})'>${row.order_no}</span></td>
+                            <td><span class="clickable-no" onclick='prepareEdit(${JSON.stringify(row)})'>${row.order_no}</span></td>
                             <td>${row.client_name}</td><td>${row.manager_id}</td><td>${row.product_summary}</td>
                             <td>${row.order_qty.toLocaleString(undefined, {minimumFractionDigits: 3})} kg</td>
                             <td>${row.order_amount.toLocaleString()} 원</td><td>${row.due_date}</td><td>${row.remark}</td>
@@ -354,49 +425,6 @@ def dashboard():
                         tbody.appendChild(tr);
                     });
                 });
-            }
-
-            function loadMaterials() {
-                fetch('/api/v1/materials').then(res => res.json()).then(data => {
-                    const tbody = document.getElementById('materialTableBody');
-                    tbody.innerHTML = '';
-                    if (!data.data || data.data.length === 0) {
-                        tbody.innerHTML = '<tr><td colspan="8" style="text-align: center;">등록된 원료 데이터가 없습니다.</td></tr>';
-                        return;
-                    }
-                    data.data.forEach((row, index) => {
-                        const tr = document.createElement('tr');
-                        tr.innerHTML = `
-                            <td>${index + 1}</td>
-                            <td><strong>${row.material_code}</strong></td>
-                            <td>${row.material_name_kr}</td>
-                            <td>${row.material_name_en}</td>
-                            <td>${row.cas_no}</td>
-                            <td>${row.supplier}</td>
-                            <td>${row.unit}</td>
-                            <td>${row.category}</td>
-                        `;
-                        tbody.appendChild(tr);
-                    });
-                });
-            }
-
-            function uploadExcel(event) {
-                event.preventDefault();
-                const fileInput = document.getElementById('excelFile');
-                if (fileInput.files.length === 0) { alert("파일을 선택해 주세요."); return; }
-                const formData = new FormData();
-                formData.append("file", fileInput.files[0]);
-
-                fetch('/api/v1/materials/upload', { method: 'POST', body: formData })
-                .then(res => res.json()).then(resData => {
-                    if (resData.status === "SUCCESS") {
-                        alert(resData.message);
-                        loadMaterials();
-                    } else {
-                        alert("업로드 실패: " + JSON.stringify(resData));
-                    }
-                }).catch(err => alert("통신 에러: " + err));
             }
 
             function createWorkOrder(orderId) {
@@ -502,6 +530,25 @@ def dashboard():
     """
 
 # --- API 엔드포인트 ---
+
+@app.get("/api/v1/materials")
+def get_materials(skip: int = 0, limit: int = 200):
+    try:
+        db = SessionLocal()
+        materials = db.query(MaterialMaster).offset(skip).limit(limit).all()
+        db.close()
+        data = [{
+            "material_code": m.material_code,
+            "material_name_kr": m.material_name_kr,
+            "material_name_en": m.material_name_en,
+            "cas_no": m.cas_no,
+            "supplier": m.supplier,
+            "unit": m.unit,
+            "category": m.category
+        } for m in materials]
+        return {"status": "SUCCESS", "count": len(data), "data": data}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/v1/orders")
 def create_order(data: OrderRequest):
@@ -660,28 +707,6 @@ def export_csv():
         response = Response(content=output.getvalue(), media_type="text/csv")
         response.headers["Content-Disposition"] = "attachment; filename=batch_production_logs.csv"
         return response
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-# 원료 마스터 리스트 조회 API
-@app.get("/api/v1/materials")
-def get_materials():
-    try:
-        db = SessionLocal()
-        materials = db.query(MaterialMaster).all()
-        db.close()
-        data = [
-            {
-                "material_code": m.material_code,
-                "material_name_kr": m.material_name_kr,
-                "material_name_en": m.material_name_en,
-                "cas_no": m.cas_no,
-                "supplier": m.supplier,
-                "unit": m.unit,
-                "category": m.category
-            } for m in materials
-        ]
-        return {"status": "SUCCESS", "count": len(data), "data": data}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
