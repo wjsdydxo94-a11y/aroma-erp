@@ -52,8 +52,6 @@ def init_db():
     ''')
     conn.commit()
     conn.close()
-
-    # 서버 시작 시 데이터가 없으면 업로드한 엑셀 파일에서 자동 적재 (Auto-Seed)
     auto_seed_materials()
 
 def auto_seed_materials():
@@ -70,10 +68,13 @@ def auto_seed_materials():
                     if not vals or all(v == "" or v.lower() in ["nan", "none"] for v in vals):
                         continue
                     row_str = " ".join(vals)
+                    if any(keyword in row_str for keyword in ["회사명", "사업자", "대표", "주소", "TEL", "FAX"]):
+                        continue
                     if ("코드" in row_str or "품목코드" in row_str or "원료코드" in row_str) and ("명" in row_str or "규격" in row_str):
                         continue
+                    
                     material_code = vals[0] if len(vals) > 0 else ""
-                    if not material_code or material_code.lower() in ["nan", "none", "", "품목코드", "원료코드", "code", "코드"]:
+                    if not material_code or material_code.lower() in ["nan", "none", "", "품목코드", "원료코드", "code", "코드"] or "회사명" in material_code:
                         continue
                     
                     name_kr = vals[1] if len(vals) > 1 else ""
@@ -106,7 +107,6 @@ def auto_seed_materials():
                     db.add(new_material)
                     success_count += 1
                 db.commit()
-                print(f"[Auto-Seed] 총 {success_count}건의 원료 데이터가 자동으로 적재되었습니다.")
             except Exception as e:
                 print(f"[Auto-Seed Error] {e}")
     db.close()
@@ -129,6 +129,15 @@ class OrderRequest(BaseModel):
     due_date: str
     remark: str = "정상"
 
+class MaterialRequest(BaseModel):
+    material_code: str
+    material_name_kr: str
+    material_name_en: str
+    cas_no: str
+    supplier: str
+    unit: str = "Kg"
+    category: str = ""
+
 @app.get("/", response_class=HTMLResponse)
 def dashboard():
     return """
@@ -142,19 +151,10 @@ def dashboard():
             body { display: flex; height: 100vh; overflow: hidden; background-color: #F8FAFC; font-family: 'Pretendard', -apple-system, sans-serif; }
             
             .aroma-sidebar {
-              width: 260px;
-              height: 100vh;
-              background-color: #1E242B;
-              color: #E2E8F0;
-              display: flex;
-              flex-direction: column;
-              box-shadow: 4px 0 20px rgba(0, 0, 0, 0.15);
-              flex-shrink: 0;
+              width: 260px; height: 100vh; background-color: #1E242B; color: #E2E8F0;
+              display: flex; flex-direction: column; box-shadow: 4px 0 20px rgba(0, 0, 0, 0.15); flex-shrink: 0;
             }
-            .sidebar-header {
-              padding: 24px 20px 18px 20px;
-              border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-            }
+            .sidebar-header { padding: 24px 20px 18px 20px; border-bottom: 1px solid rgba(255, 255, 255, 0.06); }
             .brand-logo-area { display: flex; flex-direction: column; gap: 6px; }
             .logo-text { font-size: 19px; font-weight: 700; color: #FFFFFF; letter-spacing: -0.5px; }
             .logo-wave-line { height: 3px; width: 100%; background: linear-gradient(90deg, #00A8FF 0%, #0077FF 100%); border-radius: 2px; }
@@ -206,6 +206,14 @@ def dashboard():
             .badge { background: #3b82f6; color: white; padding: 3px 6px; border-radius: 4px; font-size: 11px; }
             .badge-success { background: #22c55e; }
             .badge-progress { background: #d97706; }
+
+            /* 페이징 및 검색바 스타일 */
+            .search-bar { display: flex; gap: 10px; margin-bottom: 15px; align-items: center; }
+            .search-bar input { padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; width: 300px; font-size: 13px; }
+            .pagination { display: flex; justify-content: center; gap: 5px; margin-top: 20px; align-items: center; }
+            .pagination button { padding: 6px 12px; border: 1px solid #cbd5e1; background: white; border-radius: 4px; cursor: pointer; font-size: 13px; }
+            .pagination button.active { background: #0077FF; color: white; border-color: #0077FF; }
+            .pagination button:disabled { background: #f1f5f9; color: #94a3b8; cursor: not-allowed; }
         </style>
     </head>
     <body>
@@ -220,27 +228,19 @@ def dashboard():
           <nav class="sidebar-nav">
             <details>
               <summary>견적서 관리</summary>
-              <ul>
-                <li><a onclick="switchTab('orders-tab')">견적 입력/조회</a></li>
-              </ul>
+              <ul><li><a onclick="switchTab('orders-tab')">견적 입력/조회</a></li></ul>
             </details>
             <details open>
               <summary>주문서 관리</summary>
-              <ul>
-                <li><a class="active" onclick="switchTab('orders-tab')">주문 등록 및 조회</a></li>
-              </ul>
+              <ul><li><a class="active" onclick="switchTab('orders-tab')">주문 등록 및 조회</a></li></ul>
             </details>
             <details>
               <summary>판매 관리</summary>
-              <ul>
-                <li><a onclick="switchTab('orders-tab')">판매 조회 및 입력</a></li>
-              </ul>
+              <ul><li><a onclick="switchTab('orders-tab')">판매 조회 및 입력</a></li></ul>
             </details>
             <details>
               <summary>입고 / 구매</summary>
-              <ul>
-                <li><a onclick="switchTab('orders-tab')">발주 및 입고 관리</a></li>
-              </ul>
+              <ul><li><a onclick="switchTab('orders-tab')">발주 및 입고 관리</a></li></ul>
             </details>
             <details open>
               <summary>원료 마스터 관리</summary>
@@ -251,9 +251,7 @@ def dashboard():
             </details>
             <details>
               <summary>생산 및 배치</summary>
-              <ul>
-                <li><a onclick="switchTab('orders-tab')">작업 지시서 및 투입이력</a></li>
-              </ul>
+              <ul><li><a onclick="switchTab('orders-tab')">작업 지시서 및 투입이력</a></li></ul>
             </details>
           </nav>
         </aside>
@@ -337,7 +335,6 @@ def dashboard():
 
                 <div class="card">
                     <h2>원료 마스터 엑셀 일괄 업로드</h2>
-                    <p style="margin-top: 5px; color: #64748b;">서버 재시작 시 자동 적재되지만, 수동 갱신도 가능합니다.</p>
                     <form onsubmit="uploadExcel(event)" style="margin-top: 15px; display: flex; gap: 10px; align-items: center;">
                         <input type="file" id="excelFile" accept=".xlsx, .xls" required style="padding: 6px; border: 1px solid #cbd5e1; border-radius: 6px; background: #fff;">
                         <button type="submit" class="btn-order">엑셀 파일 업로드 실행</button>
@@ -346,65 +343,180 @@ def dashboard():
 
                 <div class="card">
                     <h2>품목등록 리스트 (데이터베이스 연동)</h2>
+                    
+                    <!-- 검색 바 -->
+                    <div class="search-bar" style="margin-top: 15px;">
+                        <input type="text" id="searchInput" placeholder="원료코드, 원료명, CAS No, 공급사 검색..." onkeyup="if(event.key==='Enter') searchMaterials()">
+                        <button type="button" class="btn-action" onclick="searchMaterials()" style="padding: 8px 14px;">검색</button>
+                        <button type="button" class="btn-delete" onclick="resetSearch()" style="padding: 8px 14px; background:#64748b;">초기화</button>
+                    </div>
+
                     <table>
                         <thead>
                             <tr>
-                                <th style="width: 70px;">순번</th>
+                                <th style="width: 60px;">순번</th>
                                 <th>원료코드</th>
                                 <th>원료명(국문)</th>
                                 <th>원료명(영문)</th>
                                 <th>CAS No.</th>
                                 <th>공급사</th>
                                 <th>관리단위</th>
-                                <th>원료분류</th>
+                                <th>관리</th>
                             </tr>
                         </thead>
                         <tbody id="materialTableBody">
                             <tr><td colspan="8" style="text-align: center;">원료 데이터를 불러오는 중...</td></tr>
                         </tbody>
                     </table>
+
+                    <!-- 페이징 컨트롤 -->
+                    <div class="pagination" id="paginationContainer"></div>
                 </div>
             </div>
         </main>
 
         <script>
-            let editingOrderId = null;
+            let currentPage = 1;
+            const pageSize = 30;
+            let currentSearch = '';
 
             function switchTab(tabId) {
                 document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
                 document.getElementById(tabId).classList.add('active');
                 if (tabId === 'materials-tab') {
-                    loadMaterials();
+                    loadMaterials(1);
                 }
             }
 
-            function loadMaterials() {
-                fetch('/api/v1/materials')
+            function loadMaterials(page) {
+                currentPage = page;
+                const skip = (page - 1) * pageSize;
+                let url = `/api/v1/materials?skip=${skip}&limit=${pageSize}`;
+                if (currentSearch) {
+                    url += `&search=${encodeURIComponent(currentSearch)}`;
+                }
+
+                fetch(url)
                 .then(res => res.json())
                 .then(data => {
                     const tbody = document.getElementById('materialTableBody');
                     tbody.innerHTML = '';
                     if (!data.data || data.data.length === 0) {
                         tbody.innerHTML = '<tr><td colspan="8" style="text-align: center;">등록된 원료 데이터가 없습니다.</td></tr>';
+                        document.getElementById('paginationContainer').innerHTML = '';
                         return;
                     }
+
                     data.data.forEach((row, index) => {
+                        const rowNum = skip + index + 1;
                         const tr = document.createElement('tr');
                         tr.innerHTML = `
-                            <td>${index + 1}</td>
+                            <td>${rowNum}</td>
                             <td><strong>${row.material_code || ''}</strong></td>
-                            <td>${row.material_name_kr || ''}</td>
-                            <td>${row.material_name_en || ''}</td>
-                            <td>${row.cas_no || ''}</td>
-                            <td>${row.supplier || ''}</td>
+                            <td><input type="text" id="kr_${row.id}" value="${row.material_name_kr || ''}" style="width:100%; padding:4px; border:1px solid #cbd5e1; border-radius:4px;"></td>
+                            <td><input type="text" id="en_${row.id}" value="${row.material_name_en || ''}" style="width:100%; padding:4px; border:1px solid #cbd5e1; border-radius:4px;"></td>
+                            <td><input type="text" id="cas_${row.id}" value="${row.cas_no || ''}" style="width:100%; padding:4px; border:1px solid #cbd5e1; border-radius:4px;"></td>
+                            <td><input type="text" id="sup_${row.id}" value="${row.supplier || ''}" style="width:100%; padding:4px; border:1px solid #cbd5e1; border-radius:4px;"></td>
                             <td>${row.unit || 'Kg'}</td>
-                            <td>${row.category || ''}</td>
+                            <td>
+                                <button class="btn-action" onclick="updateMaterial(${row.id})">수정</button>
+                                <button class="btn-delete" onclick="deleteMaterial(${row.id})">삭제</button>
+                            </td>
                         `;
                         tbody.appendChild(tr);
                     });
+
+                    renderPagination(data.total);
                 })
                 .catch(err => {
                     document.getElementById('materialTableBody').innerHTML = '<tr><td colspan="8" style="text-align: center; color: red;">데이터 로드 실패</td></tr>';
+                });
+            }
+
+            function renderPagination(totalItems) {
+                const totalPages = Math.ceil(totalItems / pageSize);
+                const container = document.getElementById('paginationContainer');
+                container.innerHTML = '';
+
+                if (totalPages <= 1) return;
+
+                // 이전 버튼
+                const prevBtn = document.createElement('button');
+                prevBtn.innerText = '◀ 이전';
+                prevBtn.disabled = currentPage === 1;
+                prevBtn.onclick = () => loadMaterials(currentPage - 1);
+                container.appendChild(prevBtn);
+
+                // 페이지 번호 표시 (최대 5개 정도 표시)
+                let startPage = Math.max(1, currentPage - 2);
+                let endPage = Math.min(totalPages, startPage + 4);
+                if (endPage - startPage < 4) {
+                    startPage = Math.max(1, endPage - 4);
+                }
+
+                for (let i = startPage; i <= endPage; i++) {
+                    const pageBtn = document.createElement('button');
+                    pageBtn.innerText = i;
+                    if (i === currentPage) pageBtn.classList.add('active');
+                    pageBtn.onclick = () => loadMaterials(i);
+                    container.appendChild(pageBtn);
+                }
+
+                // 다음 버튼
+                const nextBtn = document.createElement('button');
+                nextBtn.innerText = '다음 ▶';
+                nextBtn.disabled = currentPage === totalPages;
+                nextBtn.onclick = () => loadMaterials(currentPage + 1);
+                container.appendChild(nextBtn);
+            }
+
+            function searchMaterials() {
+                currentSearch = document.getElementById('searchInput').value.trim();
+                loadMaterials(1);
+            }
+
+            function resetSearch() {
+                document.getElementById('searchInput').value = '';
+                currentSearch = '';
+                loadMaterials(1);
+            }
+
+            function updateMaterial(id) {
+                const payload = {
+                    material_code: "",
+                    material_name_kr: document.getElementById(`kr_${id}`).value,
+                    material_name_en: document.getElementById(`en_${id}`).value,
+                    cas_no: document.getElementById(`cas_${id}`).value,
+                    supplier: document.getElementById(`sup_${id}`).value,
+                    unit: "Kg",
+                    category: ""
+                };
+                fetch(`/api/v1/materials/${id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.status === "SUCCESS") {
+                        alert("수정되었습니다.");
+                    } else {
+                        alert("수정 실패");
+                    }
+                });
+            }
+
+            function deleteMaterial(id) {
+                if (!confirm("정말 이 원료 데이터를 삭제하시겠습니까?")) return;
+                fetch(`/api/v1/materials/${id}`, { method: 'DELETE' })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.status === "SUCCESS") {
+                        alert("삭제되었습니다.");
+                        loadMaterials(currentPage);
+                    } else {
+                        alert("삭제 실패");
+                    }
                 });
             }
 
@@ -418,7 +530,7 @@ def dashboard():
                 const formData = new FormData();
                 formData.append("file", fileInput.files[0]);
 
-                alert("업로드를 진행합니다. 수천 건의 데이터는 몇 초 정도 소요될 수 있습니다.");
+                alert("업로드를 진행합니다. 잠시만 기다려 주세요.");
                 fetch('/api/v1/materials/upload', {
                     method: 'POST',
                     body: formData
@@ -427,13 +539,10 @@ def dashboard():
                 .then(resData => {
                     if (resData.status === "SUCCESS") {
                         alert(resData.message);
-                        loadMaterials();
+                        loadMaterials(1);
                     } else {
-                        alert("업로드 실패: " + JSON.stringify(resData));
+                        alert("업로드 실패");
                     }
-                })
-                .catch(err => {
-                    alert("통신 에러 발생: " + err);
                 });
             }
 
@@ -482,72 +591,6 @@ def dashboard():
                 });
             }
 
-            function createWorkOrder(orderId) {
-                fetch(`/api/v1/work-orders?order_id=${orderId}`, { method: 'POST' })
-                .then(res => res.json()).then(resData => {
-                    if (resData.status === "SUCCESS") { alert("작업지시서가 발행되었습니다."); loadOrders(); loadWorkOrders(); }
-                    else { alert("발행 실패: " + (resData.detail || JSON.stringify(resData))); }
-                });
-            }
-
-            function deleteWorkOrder(woId) {
-                if (!confirm("이 작업지시를 취소하시겠습니까?")) return;
-                fetch(`/api/v1/work-orders/${woId}`, { method: 'DELETE' })
-                .then(res => res.json()).then(resData => {
-                    if (resData.status === "SUCCESS") { alert("취소되었습니다."); loadWorkOrders(); }
-                });
-            }
-
-            function prepareEdit(row) {
-                editingOrderId = row.order_id;
-                document.getElementById('order_no').value = row.order_no;
-                document.getElementById('client_name').value = row.client_name;
-                document.getElementById('manager_id').value = row.manager_id;
-                document.getElementById('product_summary').value = row.product_summary;
-                document.getElementById('order_qty').value = row.order_qty;
-                document.getElementById('order_amount').value = row.order_amount;
-                document.getElementById('due_date').value = row.due_date;
-                document.getElementById('remark').value = row.remark;
-                const btn = document.getElementById('orderSubmitBtn');
-                btn.innerText = "주문서 수정 저장"; btn.style.background = "#d97706";
-                window.scrollTo({ top: 0, behavior: 'smooth' });
-            }
-
-            function submitOrder(event) {
-                event.preventDefault();
-                const payload = {
-                    order_no: document.getElementById('order_no').value,
-                    client_name: document.getElementById('client_name').value,
-                    manager_id: document.getElementById('manager_id').value,
-                    product_summary: document.getElementById('product_summary').value,
-                    order_qty: parseFloat(document.getElementById('order_qty').value),
-                    order_amount: parseFloat(document.getElementById('order_amount').value),
-                    due_date: document.getElementById('due_date').value,
-                    remark: document.getElementById('remark').value
-                };
-                const url = editingOrderId ? `/api/v1/orders/${editingOrderId}` : '/api/v1/orders';
-                const method = editingOrderId ? 'PUT' : 'POST';
-                fetch(url, { method: method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
-                .then(res => res.json()).then(resData => {
-                    if (resData.status === "SUCCESS") {
-                        alert(editingOrderId ? "수정되었습니다." : "등록되었습니다.");
-                        editingOrderId = null;
-                        document.getElementById('orderForm').reset();
-                        document.getElementById('orderSubmitBtn').innerText = "신규 주문서 등록";
-                        document.getElementById('orderSubmitBtn').style.background = "#0077FF";
-                        loadOrders();
-                    }
-                });
-            }
-
-            function deleteOrder(orderId) {
-                if (!confirm("정말 삭제하시겠습니까?")) return;
-                fetch(`/api/v1/orders/${orderId}`, { method: 'DELETE' })
-                .then(res => res.json()).then(resData => {
-                    if (resData.status === "SUCCESS") { alert("삭제되었습니다."); loadOrders(); loadWorkOrders(); }
-                });
-            }
-
             function loadLogs() {
                 fetch('/api/v1/production/batches').then(res => res.json()).then(data => {
                     const tbody = document.getElementById('logTableBody');
@@ -564,33 +607,34 @@ def dashboard():
                 });
             }
 
-            function submitLog(event) {
-                event.preventDefault();
-                const payload = {
-                    batch_id: document.getElementById('batch_id').value,
-                    manifold_id: document.getElementById('manifold_id').value,
-                    input_qty: parseFloat(document.getElementById('input_qty').value),
-                    operator_id: document.getElementById('operator_id').value
-                };
-                fetch('/api/v1/production/batches/log', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
-                .then(res => res.json()).then(resData => {
-                    if (resData.status === "SUCCESS") { alert("저장되었습니다."); loadLogs(); }
-                });
-            }
-
             loadOrders(); loadWorkOrders(); loadLogs();
         </script>
     </body>
     </html>
     """
 
+# --- API 엔드포인트 수정 및 추가 ---
+
 @app.get("/api/v1/materials")
-def get_materials(skip: int = 0, limit: int = 10000):
+def get_materials(skip: int = 0, limit: int = 30, search: str = None):
     try:
         db = SessionLocal()
-        materials = db.query(MaterialMaster).offset(skip).limit(limit).all()
+        query = db.query(MaterialMaster)
+        if search:
+            search_pattern = f"%{search}%"
+            query = query.filter(
+                (MaterialMaster.material_code.like(search_pattern)) |
+                (MaterialMaster.material_name_kr.like(search_pattern)) |
+                (MaterialMaster.material_name_en.like(search_pattern)) |
+                (MaterialMaster.cas_no.like(search_pattern)) |
+                (MaterialMaster.supplier.like(search_pattern))
+            )
+        total = query.count()
+        materials = query.offset(skip).limit(limit).all()
         db.close()
+        
         data = [{
+            "id": m.id,
             "material_code": m.material_code,
             "material_name_kr": m.material_name_kr,
             "material_name_en": m.material_name_en,
@@ -599,7 +643,40 @@ def get_materials(skip: int = 0, limit: int = 10000):
             "unit": m.unit,
             "category": m.category
         } for m in materials]
-        return {"status": "SUCCESS", "count": len(data), "data": data}
+        return {"status": "SUCCESS", "total": total, "count": len(data), "data": data}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.put("/api/v1/materials/{material_id}")
+def update_material(material_id: int, data: MaterialRequest):
+    try:
+        db = SessionLocal()
+        m = db.query(MaterialMaster).filter(MaterialMaster.id == material_id).first()
+        if not m:
+            db.close()
+            raise HTTPException(status_code=404, detail="원료를 찾을 수 없습니다.")
+        m.material_name_kr = data.material_name_kr
+        m.material_name_en = data.material_name_en
+        m.cas_no = data.cas_no
+        m.supplier = data.supplier
+        db.commit()
+        db.close()
+        return {"status": "SUCCESS", "message": "수정되었습니다."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/api/v1/materials/{material_id}")
+def delete_material(material_id: int):
+    try:
+        db = SessionLocal()
+        m = db.query(MaterialMaster).filter(MaterialMaster.id == material_id).first()
+        if not m:
+            db.close()
+            raise HTTPException(status_code=404, detail="원료를 찾을 수 없습니다.")
+        db.delete(m)
+        db.commit()
+        db.close()
+        return {"status": "SUCCESS", "message": "삭제되었습니다."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -776,11 +853,13 @@ async def upload_materials(file: UploadFile = File(...)):
                 continue
             
             row_str = " ".join(vals)
+            if any(keyword in row_str for keyword in ["회사명", "사업자", "대표", "주소", "TEL", "FAX"]):
+                continue
             if ("코드" in row_str or "품목코드" in row_str or "원료코드" in row_str) and ("명" in row_str or "규격" in row_str):
                 continue
             
             material_code = vals[0] if len(vals) > 0 else ""
-            if not material_code or material_code.lower() in ["nan", "none", "", "품목코드", "원료코드", "code", "코드"]:
+            if not material_code or material_code.lower() in ["nan", "none", "", "품목코드", "원료코드", "code", "코드"] or "회사명" in material_code:
                 continue
             
             name_kr = vals[1] if len(vals) > 1 else ""
