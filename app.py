@@ -11,7 +11,6 @@ from database import engine, Base, SessionLocal, MaterialMaster
 Base.metadata.create_all(bind=engine)
 app = FastAPI()
 
-# 데이터베이스 및 테이블 초기화
 def init_db():
     conn = sqlite3.connect('erp_factory.db')
     cursor = conn.cursor()
@@ -72,7 +71,6 @@ class OrderRequest(BaseModel):
     due_date: str
     remark: str = "정상"
 
-# 통합 메인 대시보드
 @app.get("/", response_class=HTMLResponse)
 def dashboard():
     return """
@@ -281,7 +279,7 @@ def dashboard():
 
                 <div class="card">
                     <h2>원료 마스터 엑셀 일괄 업로드</h2>
-                    <p style="margin-top: 5px; color: #64748b;">원료코드/품목코드가 포함된 엑셀 파일을 업로드하면 데이터가 즉시 적재됩니다.</p>
+                    <p style="margin-top: 5px; color: #64748b;">엑셀 파일을 업로드하면 데이터베이스에 즉시 적재됩니다.</p>
                     <form onsubmit="uploadExcel(event)" style="margin-top: 15px; display: flex; gap: 10px; align-items: center;">
                         <input type="file" id="excelFile" accept=".xlsx, .xls" required style="padding: 6px; border: 1px solid #cbd5e1; border-radius: 6px; background: #fff;">
                         <button type="submit" class="btn-order">엑셀 파일 업로드 실행</button>
@@ -328,7 +326,7 @@ def dashboard():
                     const tbody = document.getElementById('materialTableBody');
                     tbody.innerHTML = '';
                     if (!data.data || data.data.length === 0) {
-                        tbody.innerHTML = '<tr><td colspan="7" style="text-align: center;">등록된 원료 데이터가 없습니다. (엑셀 업로드를 진행해 주세요)</td></tr>';
+                        tbody.innerHTML = '<tr><td colspan="7" style="text-align: center;">등록된 원료 데이터가 없습니다.</td></tr>';
                         return;
                     }
                     data.data.forEach(row => {
@@ -368,7 +366,7 @@ def dashboard():
                 .then(res => res.json())
                 .then(resData => {
                     if (resData.status === "SUCCESS") {
-                        alert(resData.message);
+                        alert(resData.message + (resData.columns_found ? "\\n(인식된 컬럼: " + resData.columns_found.slice(0, 3).join(", ") + "...)" : ""));
                         loadMaterials();
                     } else {
                         alert("업로드 실패: " + JSON.stringify(resData));
@@ -525,8 +523,6 @@ def dashboard():
     </body>
     </html>
     """
-
-# --- API 엔드포인트 ---
 
 @app.get("/api/v1/materials")
 def get_materials(skip: int = 0, limit: int = 200):
@@ -711,35 +707,85 @@ def export_csv():
 async def upload_materials(file: UploadFile = File(...)):
     try:
         df = pd.read_excel(file.file)
-        # 엑셀 컬럼명 공백 제거
         df.columns = [str(c).strip() for c in df.columns]
         db = SessionLocal()
         success_count = 0
-        for _, row in df.iterrows():
-            # 품목코드, 원료코드 모두 수용
-            material_code = str(row.get("품목코드") or row.get("원료코드") or row.get("원료 코드") or row.get("Code") or row.get("코드") or "").strip()
+        
+        for idx, row in df.iterrows():
+            # 1. 품목코드 (위치 기반 폴백 포함: 첫 번째 열)
+            material_code = ""
+            for col in ["품목코드", "원료코드", "원료 코드", "Code", "코드"]:
+                if col in df.columns:
+                    val = str(row.get(col, "")).strip()
+                    if val and val.lower() not in ["nan", "none", ""]:
+                        material_code = val
+                        break
+            if not material_code and len(df.columns) > 0:
+                val = str(row.iloc[0]).strip()
+                if val and val.lower() not in ["nan", "none", ""]:
+                    material_code = val
+
             if not material_code or material_code.lower() in ["nan", "none", ""]:
                 continue
-            
-            # 품목명, 국문명 등 수용
-            name_kr = str(row.get("품목명") or row.get("원료명(국문)") or row.get("원료명 (국문)") or row.get("국문명") or "").strip()
-            name_en = str(row.get("영문명") or row.get("원료명(영문)") or row.get("원료명 (영문)") or "").strip()
-            cas_no = str(row.get("CAS No.") or row.get("CAS No") or row.get("CAS번호") or row.get("CAS 번호") or row.get("CAS") or "").strip()
-            supplier = str(row.get("구매처명") or row.get("공급사") or row.get("제조사") or "").strip()
-            unit = str(row.get("관리단위") or row.get("단위") or "Kg").strip()
-            category = str(row.get("품목구분") or row.get("원료분류") or row.get("분류") or "").strip()
 
-            if name_kr.lower() in ["nan", "none"]: name_kr = ""
-            if name_en.lower() in ["nan", "none"]: name_en = ""
-            if cas_no.lower() in ["nan", "none"]: cas_no = ""
-            if supplier.lower() in ["nan", "none"]: supplier = ""
-            if unit.lower() in ["nan", "none"]: unit = "Kg"
-            if category.lower() in ["nan", "none"]: category = ""
+            # 2. 품목명 (위치 기반 폴백: 두 번째 열)
+            name_kr = ""
+            for col in ["품목명", "원료명(국문)", "원료명 (국문)", "국문명"]:
+                if col in df.columns:
+                    val = str(row.get(col, "")).strip()
+                    if val and val.lower() not in ["nan", "none", ""]:
+                        name_kr = val
+                        break
+            if not name_kr and len(df.columns) > 1:
+                val = str(row.iloc[1]).strip()
+                if val and val.lower() not in ["nan", "none"]: name_kr = val
+
+            # 3. CAS No. (위치 기반 폴백: 7번째 열 등)
+            cas_no = ""
+            for col in ["CAS No.", "CAS No", "CAS번호", "CAS 번호", "CAS"]:
+                if col in df.columns:
+                    val = str(row.get(col, "")).strip()
+                    if val and val.lower() not in ["nan", "none", ""]:
+                        cas_no = val
+                        break
+            if not cas_no and len(df.columns) > 7:
+                val = str(row.iloc[7]).strip()
+                if val and val.lower() not in ["nan", "none"]: cas_no = val
+
+            # 4. 공급사 / 구매처명 (위치 기반 폴백: 5번째 열 등)
+            supplier = ""
+            for col in ["구매처명", "공급사", "제조사"]:
+                if col in df.columns:
+                    val = str(row.get(col, "")).strip()
+                    if val and val.lower() not in ["nan", "none", ""]:
+                        supplier = val
+                        break
+            if not supplier and len(df.columns) > 5:
+                val = str(row.iloc[5]).strip()
+                if val and val.lower() not in ["nan", "none"]: supplier = val
+
+            # 5. 관리단위
+            unit = "Kg"
+            for col in ["관리단위", "단위"]:
+                if col in df.columns:
+                    val = str(row.get(col, "")).strip()
+                    if val and val.lower() not in ["nan", "none", ""]:
+                        unit = val
+                        break
+
+            # 6. 품목구분
+            category = ""
+            for col in ["품목구분", "원료분류", "분류"]:
+                if col in df.columns:
+                    val = str(row.get(col, "")).strip()
+                    if val and val.lower() not in ["nan", "none", ""]:
+                        category = val
+                        break
 
             existing = db.query(MaterialMaster).filter(MaterialMaster.material_code == material_code).first()
             if existing:
                 existing.material_name_kr = name_kr
-                existing.material_name_en = name_en
+                existing.material_name_en = ""
                 existing.cas_no = cas_no
                 existing.supplier = supplier
                 existing.unit = unit
@@ -748,7 +794,7 @@ async def upload_materials(file: UploadFile = File(...)):
                 new_material = MaterialMaster(
                     material_code=material_code,
                     material_name_kr=name_kr,
-                    material_name_en=name_en,
+                    material_name_en="",
                     cas_no=cas_no,
                     supplier=supplier,
                     unit=unit,
@@ -759,6 +805,6 @@ async def upload_materials(file: UploadFile = File(...)):
             
         db.commit()
         db.close()
-        return {"status": "SUCCESS", "message": f"총 {success_count}건의 원료 데이터가 성공적으로 적재되었습니다."}
+        return {"status": "SUCCESS", "message": f"총 {success_count}건의 원료 데이터가 성공적으로 적재되었습니다.", "columns_found": list(df.columns)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
