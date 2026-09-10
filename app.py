@@ -50,7 +50,6 @@ def init_db():
             FOREIGN KEY (order_id) REFERENCES orders (order_id)
         )
     ''')
-    # BOM 헤더 테이블
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS bom_headers (
             bom_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -62,7 +61,6 @@ def init_db():
             production_qty REAL
         )
     ''')
-    # BOM 상세 아이템 테이블
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS bom_items (
             item_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -593,11 +591,12 @@ def dashboard():
                 }
                 const formData = new FormData();
                 formData.append("file", fileInput.files[0]);
-                formData.append("product_code", document.getElementById('bom_product_code').value);
-                formData.append("bom_version", document.getElementById('bom_version').value);
+
+                const productCode = document.getElementById('bom_product_code').value;
+                const bomVersion = document.getElementById('bom_version').value;
 
                 alert("BOM 데이터를 업로드합니다...");
-                fetch('/api/v1/boms/upload', {
+                fetch(`/api/v1/boms/upload?product_code=${encodeURIComponent(productCode)}&bom_version=${encodeURIComponent(bomVersion)}`, {
                     method: 'POST',
                     body: formData
                 })
@@ -835,7 +834,6 @@ async def upload_bom_excel(file: UploadFile = File(...), product_code: str = Que
         conn = sqlite3.connect('erp_factory.db')
         cursor = conn.cursor()
         
-        # 기존 BOM 존재 여부 확인 후 갱신
         cursor.execute("SELECT bom_id FROM bom_headers WHERE product_code = ? AND bom_version = ?", (product_code, bom_version))
         row = cursor.fetchone()
         if row:
@@ -879,8 +877,6 @@ async def upload_bom_excel(file: UploadFile = File(...), product_code: str = Que
         return {"status": "SUCCESS", "message": f"총 {success_count}건의 BOM 처방 항목이 성공적으로 등록되었습니다."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-# --- 기존 원료 및 주문 API 유지 ---
 
 @app.get("/api/v1/materials")
 def get_materials(skip: int = 0, limit: int = 30, search: str = None):
