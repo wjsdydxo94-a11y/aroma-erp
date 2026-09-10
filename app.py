@@ -62,7 +62,6 @@ def auto_seed_materials():
         if os.path.exists(file_path):
             try:
                 df = pd.read_excel(file_path, header=None)
-                success_count = 0
                 for idx, row in df.iterrows():
                     vals = [str(val).strip() for val in row.values]
                     if not vals or all(v == "" or v.lower() in ["nan", "none"] for v in vals):
@@ -105,7 +104,6 @@ def auto_seed_materials():
                         category=""
                     )
                     db.add(new_material)
-                    success_count += 1
                 db.commit()
             except Exception as e:
                 print(f"[Auto-Seed Error] {e}")
@@ -207,13 +205,22 @@ def dashboard():
             .badge-success { background: #22c55e; }
             .badge-progress { background: #d97706; }
 
-            /* 페이징 및 검색바 스타일 */
             .search-bar { display: flex; gap: 10px; margin-bottom: 15px; align-items: center; }
             .search-bar input { padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; width: 300px; font-size: 13px; }
             .pagination { display: flex; justify-content: center; gap: 5px; margin-top: 20px; align-items: center; }
             .pagination button { padding: 6px 12px; border: 1px solid #cbd5e1; background: white; border-radius: 4px; cursor: pointer; font-size: 13px; }
             .pagination button.active { background: #0077FF; color: white; border-color: #0077FF; }
             .pagination button:disabled { background: #f1f5f9; color: #94a3b8; cursor: not-allowed; }
+
+            /* 팝업 모달 스타일 */
+            .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); justify-content: center; align-items: center; z-index: 1000; }
+            .modal-content { background: white; padding: 25px; border-radius: 10px; width: 500px; box-shadow: 0 4px 20px rgba(0,0,0,0.2); }
+            .modal-header { font-size: 16px; font-weight: bold; margin-bottom: 15px; border-bottom: 2px solid #cbd5e1; padding-bottom: 8px; display: flex; justify-content: space-between; align-items: center; color: #1e293b; }
+            .modal-close { cursor: pointer; font-size: 18px; color: #64748b; }
+            .modal-body .form-group { margin-bottom: 12px; }
+            .modal-body label { display: block; font-size: 12px; font-weight: 600; color: #475569; margin-bottom: 4px; }
+            .modal-body input { width: 100%; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 13px; box-sizing: border-box; }
+            .modal-footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
         </style>
     </head>
     <body>
@@ -344,7 +351,6 @@ def dashboard():
                 <div class="card">
                     <h2>품목등록 리스트 (데이터베이스 연동)</h2>
                     
-                    <!-- 검색 바 -->
                     <div class="search-bar" style="margin-top: 15px;">
                         <input type="text" id="searchInput" placeholder="원료코드, 원료명, CAS No, 공급사 검색..." onkeyup="if(event.key==='Enter') searchMaterials()">
                         <button type="button" class="btn-action" onclick="searchMaterials()" style="padding: 8px 14px;">검색</button>
@@ -369,11 +375,33 @@ def dashboard():
                         </tbody>
                     </table>
 
-                    <!-- 페이징 컨트롤 -->
                     <div class="pagination" id="paginationContainer"></div>
                 </div>
             </div>
         </main>
+
+        <!-- 원료 수정 팝업 모달 -->
+        <div id="editModal" class="modal-overlay">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <span>품목 상세 정보 및 수정</span>
+                    <span class="modal-close" onclick="closeEditModal()">&times;</span>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" id="edit_id">
+                    <div class="form-group"><label>원료코드</label><input type="text" id="edit_code"></div>
+                    <div class="form-group"><label>원료명(국문)</label><input type="text" id="edit_name_kr"></div>
+                    <div class="form-group"><label>원료명(영문)</label><input type="text" id="edit_name_en"></div>
+                    <div class="form-group"><label>CAS No.</label><input type="text" id="edit_cas"></div>
+                    <div class="form-group"><label>공급사</label><input type="text" id="edit_supplier"></div>
+                    <div class="form-group"><label>관리단위</label><input type="text" id="edit_unit"></div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn-action" onclick="saveModalEdit()" style="background:#0077FF; padding: 8px 16px;">수정 저장</button>
+                    <button class="btn-delete" onclick="closeEditModal()" style="padding: 8px 16px; background:#64748b;">닫기</button>
+                </div>
+            </div>
+        </div>
 
         <script>
             let currentPage = 1;
@@ -412,14 +440,14 @@ def dashboard():
                         const tr = document.createElement('tr');
                         tr.innerHTML = `
                             <td>${rowNum}</td>
-                            <td><strong>${row.material_code || ''}</strong></td>
-                            <td><input type="text" id="kr_${row.id}" value="${row.material_name_kr || ''}" style="width:100%; padding:4px; border:1px solid #cbd5e1; border-radius:4px;"></td>
-                            <td><input type="text" id="en_${row.id}" value="${row.material_name_en || ''}" style="width:100%; padding:4px; border:1px solid #cbd5e1; border-radius:4px;"></td>
-                            <td><input type="text" id="cas_${row.id}" value="${row.cas_no || ''}" style="width:100%; padding:4px; border:1px solid #cbd5e1; border-radius:4px;"></td>
-                            <td><input type="text" id="sup_${row.id}" value="${row.supplier || ''}" style="width:100%; padding:4px; border:1px solid #cbd5e1; border-radius:4px;"></td>
+                            <td><span class="clickable-no" onclick='openEditModal(${JSON.stringify(row)})'>${row.material_code || ''}</span></td>
+                            <td><span class="clickable-no" onclick='openEditModal(${JSON.stringify(row)})'>${row.material_name_kr || ''}</span></td>
+                            <td>${row.material_name_en || ''}</td>
+                            <td>${row.cas_no || ''}</td>
+                            <td>${row.supplier || ''}</td>
                             <td>${row.unit || 'Kg'}</td>
                             <td>
-                                <button class="btn-action" onclick="updateMaterial(${row.id})">수정</button>
+                                <button class="btn-action" onclick='openEditModal(${JSON.stringify(row)})'>상세/수정</button>
                                 <button class="btn-delete" onclick="deleteMaterial(${row.id})">삭제</button>
                             </td>
                         `;
@@ -433,6 +461,49 @@ def dashboard():
                 });
             }
 
+            function openEditModal(row) {
+                document.getElementById('edit_id').value = row.id;
+                document.getElementById('edit_code').value = row.material_code || '';
+                document.getElementById('edit_name_kr').value = row.material_name_kr || '';
+                document.getElementById('edit_name_en').value = row.material_name_en || '';
+                document.getElementById('edit_cas').value = row.cas_no || '';
+                document.getElementById('edit_supplier').value = row.supplier || '';
+                document.getElementById('edit_unit').value = row.unit || 'Kg';
+                document.getElementById('editModal').style.display = 'flex';
+            }
+
+            function closeEditModal() {
+                document.getElementById('editModal').style.display = 'none';
+            }
+
+            function saveModalEdit() {
+                const id = document.getElementById('edit_id').value;
+                const payload = {
+                    material_code: document.getElementById('edit_code').value,
+                    material_name_kr: document.getElementById('edit_name_kr').value,
+                    material_name_en: document.getElementById('edit_name_en').value,
+                    cas_no: document.getElementById('edit_cas').value,
+                    supplier: document.getElementById('edit_supplier').value,
+                    unit: document.getElementById('edit_unit').value,
+                    category: ""
+                };
+                fetch(`/api/v1/materials/${id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.status === "SUCCESS") {
+                        alert("수정되었습니다.");
+                        closeEditModal();
+                        loadMaterials(currentPage);
+                    } else {
+                        alert("수정 실패");
+                    }
+                });
+            }
+
             function renderPagination(totalItems) {
                 const totalPages = Math.ceil(totalItems / pageSize);
                 const container = document.getElementById('paginationContainer');
@@ -440,14 +511,12 @@ def dashboard():
 
                 if (totalPages <= 1) return;
 
-                // 이전 버튼
                 const prevBtn = document.createElement('button');
                 prevBtn.innerText = '◀ 이전';
                 prevBtn.disabled = currentPage === 1;
                 prevBtn.onclick = () => loadMaterials(currentPage - 1);
                 container.appendChild(prevBtn);
 
-                // 페이지 번호 표시 (최대 5개 정도 표시)
                 let startPage = Math.max(1, currentPage - 2);
                 let endPage = Math.min(totalPages, startPage + 4);
                 if (endPage - startPage < 4) {
@@ -462,7 +531,6 @@ def dashboard():
                     container.appendChild(pageBtn);
                 }
 
-                // 다음 버튼
                 const nextBtn = document.createElement('button');
                 nextBtn.innerText = '다음 ▶';
                 nextBtn.disabled = currentPage === totalPages;
@@ -479,31 +547,6 @@ def dashboard():
                 document.getElementById('searchInput').value = '';
                 currentSearch = '';
                 loadMaterials(1);
-            }
-
-            function updateMaterial(id) {
-                const payload = {
-                    material_code: "",
-                    material_name_kr: document.getElementById(`kr_${id}`).value,
-                    material_name_en: document.getElementById(`en_${id}`).value,
-                    cas_no: document.getElementById(`cas_${id}`).value,
-                    supplier: document.getElementById(`sup_${id}`).value,
-                    unit: "Kg",
-                    category: ""
-                };
-                fetch(`/api/v1/materials/${id}`, {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                })
-                .then(res => res.json())
-                .then(data => {
-                    if (data.status === "SUCCESS") {
-                        alert("수정되었습니다.");
-                    } else {
-                        alert("수정 실패");
-                    }
-                });
             }
 
             function deleteMaterial(id) {
@@ -613,8 +656,6 @@ def dashboard():
     </html>
     """
 
-# --- API 엔드포인트 수정 및 추가 ---
-
 @app.get("/api/v1/materials")
 def get_materials(skip: int = 0, limit: int = 30, search: str = None):
     try:
@@ -655,10 +696,12 @@ def update_material(material_id: int, data: MaterialRequest):
         if not m:
             db.close()
             raise HTTPException(status_code=404, detail="원료를 찾을 수 없습니다.")
+        m.material_code = data.material_code
         m.material_name_kr = data.material_name_kr
         m.material_name_en = data.material_name_en
         m.cas_no = data.cas_no
         m.supplier = data.supplier
+        m.unit = data.unit
         db.commit()
         db.close()
         return {"status": "SUCCESS", "message": "수정되었습니다."}
