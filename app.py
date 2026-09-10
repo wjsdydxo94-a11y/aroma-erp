@@ -212,7 +212,6 @@ def dashboard():
             .pagination button.active { background: #0077FF; color: white; border-color: #0077FF; }
             .pagination button:disabled { background: #f1f5f9; color: #94a3b8; cursor: not-allowed; }
 
-            /* 팝업 모달 스타일 */
             .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); justify-content: center; align-items: center; z-index: 1000; }
             .modal-content { background: white; padding: 25px; border-radius: 10px; width: 500px; box-shadow: 0 4px 20px rgba(0,0,0,0.2); }
             .modal-header { font-size: 16px; font-weight: bold; margin-bottom: 15px; border-bottom: 2px solid #cbd5e1; padding-bottom: 8px; display: flex; justify-content: space-between; align-items: center; color: #1e293b; }
@@ -252,8 +251,7 @@ def dashboard():
             <details open>
               <summary>원료 마스터 관리</summary>
               <ul>
-                <li><a onclick="switchTab('materials-tab')">원료 리스트 조회 (7,507건)</a></li>
-                <li><a onclick="switchTab('materials-tab')">원료 마스터 업로드</a></li>
+                <li><a onclick="switchTab('materials-tab')">원료 마스터 통합 관리</a></li>
               </ul>
             </details>
             <details>
@@ -304,7 +302,7 @@ def dashboard():
                         <thead>
                             <tr><th>지시 ID</th><th>주문번호</th><th>거래처명</th><th>품목명(요약)</th><th>생산 목표량</th><th>상태</th><th>관리</th></tr>
                         </thead>
-                        <tbody id="workOrderTableBody"><tr><td colspan="7" style="text-align: center;">불러오는 중...</td></tr></tbody>
+                        <tbody id="workOrderTableBody"><tr><td colspan="7" style="text-align: center;">발행된 작업지시서가 없습니다.</td></tr></tbody>
                     </table>
                 </div>
 
@@ -328,20 +326,21 @@ def dashboard():
                         <thead>
                             <tr><th>Log ID</th><th>Batch ID</th><th>Manifold ID</th><th>Input Qty</th><th>Operator</th><th>Status</th></tr>
                         </thead>
-                        <tbody id="logTableBody"><tr><td colspan="6" style="text-align: center;">불러오는 중...</td></tr></tbody>
+                        <tbody id="logTableBody"><tr><td colspan="6" style="text-align: center;">이력이 없습니다.</td></tr></tbody>
                     </table>
                 </div>
             </div>
 
-            <!-- [탭 2] 원료 마스터 관리 및 업로드 탭 -->
+            <!-- [탭 2] 원료 마스터 통합 관리 탭 -->
             <div id="materials-tab" class="tab-content">
                 <div class="card">
                     <h1>원료 마스터 관리 (Raw Material Master)</h1>
-                    <p>아로마리소스 향료 원료 품목 리스트 조회 및 엑셀 일괄 업로드 관리</p>
+                    <p>아로마리소스 향료 원료 품목 리스트 조회, 검색, 수정 및 엑셀 일괄 업로드 관리</p>
                 </div>
 
                 <div class="card">
                     <h2>원료 마스터 엑셀 일괄 업로드</h2>
+                    <p style="margin-top: 5px; color: #64748b;">신규 엑셀 파일을 업로드하면 데이터가 즉시 갱신/추가됩니다.</p>
                     <form onsubmit="uploadExcel(event)" style="margin-top: 15px; display: flex; gap: 10px; align-items: center;">
                         <input type="file" id="excelFile" accept=".xlsx, .xls" required style="padding: 6px; border: 1px solid #cbd5e1; border-radius: 6px; background: #fff;">
                         <button type="submit" class="btn-order">엑셀 파일 업로드 실행</button>
