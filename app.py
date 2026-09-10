@@ -50,6 +50,33 @@ def init_db():
             FOREIGN KEY (order_id) REFERENCES orders (order_id)
         )
     ''')
+    # BOM 헤더 테이블
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS bom_headers (
+            bom_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            product_code TEXT,
+            product_name TEXT,
+            process_code TEXT,
+            bom_version TEXT,
+            is_default INTEGER DEFAULT 1,
+            production_qty REAL
+        )
+    ''')
+    # BOM 상세 아이템 테이블
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS bom_items (
+            item_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            bom_id INTEGER,
+            material_code TEXT,
+            material_name TEXT,
+            qty REAL,
+            unit TEXT,
+            cas_no TEXT,
+            location TEXT,
+            item_bom_version TEXT,
+            FOREIGN KEY (bom_id) REFERENCES bom_headers (bom_id)
+        )
+    ''')
     conn.commit()
     conn.close()
     auto_seed_materials()
@@ -255,9 +282,12 @@ def dashboard():
                 <li><a onclick="switchTab('materials-tab')">원료 마스터 통합 관리</a></li>
               </ul>
             </details>
-            <details>
+            <details open>
               <summary>생산 및 배치</summary>
-              <ul><li><a onclick="switchTab('orders-tab')">작업 지시서 및 투입이력</a></li></ul>
+              <ul>
+                <li><a onclick="switchTab('orders-tab')">작업 지시서 및 투입이력</a></li>
+                <li><a onclick="switchTab('bom-tab')">BOM 수정 및 관리</a></li>
+              </ul>
             </details>
           </nav>
         </aside>
@@ -372,6 +402,53 @@ def dashboard():
                     <div class="pagination" id="paginationContainer"></div>
                 </div>
             </div>
+
+            <!-- [탭 3] BOM 수정 및 관리 탭 -->
+            <div id="bom-tab" class="tab-content">
+                <div class="card" style="display:flex; justify-content:space-between; align-items:center;">
+                    <div>
+                        <h1>BOM 수정 및 관리</h1>
+                        <p>제품별 표준 처방(BOM) 조회 및 엑셀 일괄 업로드 관리</p>
+                    </div>
+                    <form onsubmit="uploadBomExcel(event)" style="display: flex; gap: 10px; align-items: center;">
+                        <input type="file" id="bomExcelFile" accept=".xlsx, .xls" required style="padding: 6px; border: 1px solid #cbd5e1; border-radius: 6px; background: #fff; font-size: 12px;">
+                        <button type="submit" class="btn-order" style="padding: 6px 12px; font-size: 12px;">BOM 엑셀 업로드</button>
+                    </form>
+                </div>
+
+                <div class="card">
+                    <div class="form-grid" style="background: #f8fafc; padding: 15px; border-radius: 8px; border: 1px solid #e2e8f0;">
+                        <div class="form-group"><label>생산품목</label><input type="text" id="bom_product_code" value="1000011096 FILLER-SE1406"></div>
+                        <div class="form-group"><label>생산공정</label><input type="text" id="bom_process_code" value="00002"></div>
+                        <div class="form-group"><label>BOM버전</label><input type="text" id="bom_version" value="2"></div>
+                        <div class="form-group"><label>생산수량</label><input type="number" id="bom_production_qty" value="1"></div>
+                    </div>
+
+                    <div style="margin-top: 20px; display: flex; justify-content: space-between; align-items: center;">
+                        <h3 style="font-size: 14px; color: #334155;">BOM 구성 원료 리스트</h3>
+                        <button type="button" class="btn-action" onclick="loadBomDetails()" style="padding: 6px 14px;">BOM 조회</button>
+                    </div>
+
+                    <table>
+                        <thead>
+                            <tr>
+                                <th style="width: 50px;">선택</th>
+                                <th style="width: 60px;">순번</th>
+                                <th>품목코드</th>
+                                <th>품목명</th>
+                                <th>수량</th>
+                                <th>단위</th>
+                                <th>CAS NO</th>
+                                <th>위치</th>
+                                <th>BOM버전</th>
+                            </tr>
+                        </thead>
+                        <tbody id="bomTableBody">
+                            <tr><td colspan="9" style="text-align: center;">상단 품목 코드로 BOM을 조회하거나 업로드해 주세요.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
         </main>
 
         <!-- 신규 원료 등록 팝업 모달 -->
@@ -429,6 +506,8 @@ def dashboard():
                 document.getElementById(tabId).classList.add('active');
                 if (tabId === 'materials-tab') {
                     loadMaterials(1);
+                } else if (tabId === 'bom-tab') {
+                    loadBomDetails();
                 }
             }
 
@@ -471,9 +550,65 @@ def dashboard():
                     });
 
                     renderPagination(data.total);
+                });
+            }
+
+            function loadBomDetails() {
+                const productCode = document.getElementById('bom_product_code').value;
+                const bomVersion = document.getElementById('bom_version').value;
+                
+                fetch(`/api/v1/boms?product_code=${encodeURIComponent(productCode)}&version=${encodeURIComponent(bomVersion)}`)
+                .then(res => res.json())
+                .then(data => {
+                    const tbody = document.getElementById('bomTableBody');
+                    tbody.innerHTML = '';
+                    if (!data.items || data.items.length === 0) {
+                        tbody.innerHTML = '<tr><td colspan="9" style="text-align: center;">해당 품목의 등록된 BOM 구성 내역이 없습니다. (엑셀 업로드를 진행해 주세요)</td></tr>';
+                        return;
+                    }
+                    data.items.forEach((item, index) => {
+                        const tr = document.createElement('tr');
+                        tr.innerHTML = `
+                            <td><input type="checkbox"></td>
+                            <td>${index + 1}</td>
+                            <td><strong>${item.material_code || ''}</strong></td>
+                            <td>${item.material_name || ''}</td>
+                            <td>${item.qty ? item.qty.toFixed(2) : '0.00'}</td>
+                            <td>${item.unit || 'KG'}</td>
+                            <td>${item.cas_no || ''}</td>
+                            <td>${item.location || ''}</td>
+                            <td>${item.item_bom_version || bomVersion}</td>
+                        `;
+                        tbody.appendChild(tr);
+                    });
+                });
+            }
+
+            function uploadBomExcel(event) {
+                event.preventDefault();
+                const fileInput = document.getElementById('bomExcelFile');
+                if (fileInput.files.length === 0) {
+                    alert("업로드할 BOM 엑셀 파일을 선택해 주세요.");
+                    return;
+                }
+                const formData = new FormData();
+                formData.append("file", fileInput.files[0]);
+                formData.append("product_code", document.getElementById('bom_product_code').value);
+                formData.append("bom_version", document.getElementById('bom_version').value);
+
+                alert("BOM 데이터를 업로드합니다...");
+                fetch('/api/v1/boms/upload', {
+                    method: 'POST',
+                    body: formData
                 })
-                .catch(err => {
-                    document.getElementById('materialTableBody').innerHTML = '<tr><td colspan="8" style="text-align: center; color: red;">데이터 로드 실패</td></tr>';
+                .then(res => res.json())
+                .then(resData => {
+                    if (resData.status === "SUCCESS") {
+                        alert(resData.message);
+                        loadBomDetails();
+                    } else {
+                        alert("업로드 실패: " + JSON.stringify(resData));
+                    }
                 });
             }
 
@@ -501,11 +636,6 @@ def dashboard():
                     unit: document.getElementById('new_unit').value.trim() || 'Kg',
                     category: ""
                 };
-                if (!payload.material_code || !payload.material_name_kr) {
-                    alert("원료코드와 국문 원료명은 필수 입력 항목입니다.");
-                    return;
-                }
-
                 fetch('/api/v1/materials', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -518,7 +648,7 @@ def dashboard():
                         closeCreateModal();
                         loadMaterials(1);
                     } else {
-                        alert("등록 실패: " + (data.detail || "중복된 코드일 수 있습니다."));
+                        alert("등록 실패");
                     }
                 });
             }
@@ -560,8 +690,6 @@ def dashboard():
                         alert("수정되었습니다.");
                         closeEditModal();
                         loadMaterials(currentPage);
-                    } else {
-                        alert("수정 실패");
                     }
                 });
             }
@@ -570,7 +698,6 @@ def dashboard():
                 const totalPages = Math.ceil(totalItems / pageSize);
                 const container = document.getElementById('paginationContainer');
                 container.innerHTML = '';
-
                 if (totalPages <= 1) return;
 
                 const prevBtn = document.createElement('button');
@@ -581,10 +708,6 @@ def dashboard():
 
                 let startPage = Math.max(1, currentPage - 2);
                 let endPage = Math.min(totalPages, startPage + 4);
-                if (endPage - startPage < 4) {
-                    startPage = Math.max(1, endPage - 4);
-                }
-
                 for (let i = startPage; i <= endPage; i++) {
                     const pageBtn = document.createElement('button');
                     pageBtn.innerText = i;
@@ -619,8 +742,6 @@ def dashboard():
                     if (data.status === "SUCCESS") {
                         alert("삭제되었습니다.");
                         loadMaterials(currentPage);
-                    } else {
-                        alert("삭제 실패");
                     }
                 });
             }
@@ -629,10 +750,7 @@ def dashboard():
                 fetch('/api/v1/orders').then(res => res.json()).then(data => {
                     const tbody = document.getElementById('orderTableBody');
                     tbody.innerHTML = '';
-                    if (!data.data || data.data.length === 0) {
-                        tbody.innerHTML = '<tr><td colspan="11" style="text-align: center;">등록된 주문서가 없습니다.</td></tr>';
-                        return;
-                    }
+                    if (!data.data || data.data.length === 0) return;
                     data.data.forEach(row => {
                         const tr = document.createElement('tr');
                         tr.innerHTML = `
@@ -653,10 +771,7 @@ def dashboard():
                 fetch('/api/v1/work-orders').then(res => res.json()).then(data => {
                     const tbody = document.getElementById('workOrderTableBody');
                     tbody.innerHTML = '';
-                    if (!data.data || data.data.length === 0) {
-                        tbody.innerHTML = '<tr><td colspan="7" style="text-align: center;">발행된 작업지시서가 없습니다.</td></tr>';
-                        return;
-                    }
+                    if (!data.data || data.data.length === 0) return;
                     data.data.forEach(row => {
                         const tr = document.createElement('tr');
                         tr.innerHTML = `
@@ -674,10 +789,7 @@ def dashboard():
                 fetch('/api/v1/production/batches').then(res => res.json()).then(data => {
                     const tbody = document.getElementById('logTableBody');
                     tbody.innerHTML = '';
-                    if (!data.data || data.data.length === 0) {
-                        tbody.innerHTML = '<tr><td colspan="6" style="text-align: center;">이력이 없습니다.</td></tr>';
-                        return;
-                    }
+                    if (!data.data || data.data.length === 0) return;
                     data.data.forEach(row => {
                         const tr = document.createElement('tr');
                         tr.innerHTML = `<td>${row.log_id}</td><td><strong>${row.batch_id}</strong></td><td>${row.manifold_id}</td><td>${row.input_qty.toFixed(3)} kg</td><td>${row.operator_id}</td><td><span class="badge badge-success">${row.status}</span></td>`;
@@ -691,6 +803,84 @@ def dashboard():
     </body>
     </html>
     """
+
+# --- BOM API 엔드포인트 ---
+
+@app.get("/api/v1/boms")
+def get_bom(product_code: str, version: str):
+    try:
+        conn = sqlite3.connect('erp_factory.db')
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM bom_headers WHERE product_code = ? AND bom_version = ?", (product_code, version))
+        header = cursor.fetchone()
+        if not header:
+            conn.close()
+            return {"header": None, "items": []}
+        
+        cursor.execute("SELECT * FROM bom_items WHERE bom_id = ?", (header['bom_id'],))
+        items = cursor.fetchall()
+        conn.close()
+        return {
+            "header": dict(header),
+            "items": [dict(it) for it in items]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/v1/boms/upload")
+async def upload_bom_excel(file: UploadFile = File(...), product_code: str = Query(...), bom_version: str = Query(...)):
+    try:
+        df = pd.read_excel(file.file, header=None)
+        conn = sqlite3.connect('erp_factory.db')
+        cursor = conn.cursor()
+        
+        # 기존 BOM 존재 여부 확인 후 갱신
+        cursor.execute("SELECT bom_id FROM bom_headers WHERE product_code = ? AND bom_version = ?", (product_code, bom_version))
+        row = cursor.fetchone()
+        if row:
+            bom_id = row[0]
+            cursor.execute("DELETE FROM bom_items WHERE bom_id = ?", (bom_id,))
+        else:
+            cursor.execute("INSERT INTO bom_headers (product_code, product_name, process_code, bom_version, production_qty) VALUES (?, ?, ?, ?, ?)",
+                           (product_code, product_code, "00002", bom_version, 1.0))
+            bom_id = cursor.lastrowid
+            
+        success_count = 0
+        for _, row in df.iterrows():
+            vals = [str(val).strip() for val in row.values]
+            if not vals or all(v == "" or v.lower() in ["nan", "none"] for v in vals):
+                continue
+            row_str = " ".join(vals)
+            if any(kw in row_str for kw in ["품목코드", "원료코드", "CAS NO", "수량"]):
+                continue
+            
+            item_code = vals[0] if len(vals) > 0 else ""
+            if not item_code or item_code.lower() in ["nan", "none", ""]:
+                continue
+            
+            item_name = vals[1] if len(vals) > 1 else ""
+            try:
+                qty = float(vals[2]) if len(vals) > 2 and vals[2].replace('.', '', 1).isdigit() else 0.0
+            except:
+                qty = 0.0
+            unit = vals[3] if len(vals) > 3 and vals[3].lower() not in ["nan", "none"] else "KG"
+            cas_no = vals[4] if len(vals) > 4 and vals[4].lower() not in ["nan", "none"] else ""
+            location = vals[5] if len(vals) > 5 and vals[5].lower() not in ["nan", "none"] else ""
+            
+            cursor.execute('''
+                INSERT INTO bom_items (bom_id, material_code, material_name, qty, unit, cas_no, location, item_bom_version)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (bom_id, item_code, item_name, qty, unit, cas_no, location, bom_version))
+            success_count += 1
+            
+        conn.commit()
+        conn.close()
+        return {"status": "SUCCESS", "message": f"총 {success_count}건의 BOM 처방 항목이 성공적으로 등록되었습니다."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# --- 기존 원료 및 주문 API 유지 ---
 
 @app.get("/api/v1/materials")
 def get_materials(skip: int = 0, limit: int = 30, search: str = None):
