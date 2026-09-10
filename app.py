@@ -1,6 +1,7 @@
 import sqlite3
 import csv
 import io
+import os
 import pandas as pd
 from fastapi import FastAPI, HTTPException, Response, File, UploadFile, Query
 from fastapi.responses import HTMLResponse
@@ -51,6 +52,64 @@ def init_db():
     ''')
     conn.commit()
     conn.close()
+
+    # 서버 시작 시 데이터가 없으면 업로드한 엑셀 파일에서 자동 적재 (Auto-Seed)
+    auto_seed_materials()
+
+def auto_seed_materials():
+    db = SessionLocal()
+    count = db.query(MaterialMaster).count()
+    if count == 0:
+        file_path = "아로마리소스 원료 리스트.xlsx"
+        if os.path.exists(file_path):
+            try:
+                df = pd.read_excel(file_path, header=None)
+                success_count = 0
+                for idx, row in df.iterrows():
+                    vals = [str(val).strip() for val in row.values]
+                    if not vals or all(v == "" or v.lower() in ["nan", "none"] for v in vals):
+                        continue
+                    row_str = " ".join(vals)
+                    if ("코드" in row_str or "품목코드" in row_str or "원료코드" in row_str) and ("명" in row_str or "규격" in row_str):
+                        continue
+                    material_code = vals[0] if len(vals) > 0 else ""
+                    if not material_code or material_code.lower() in ["nan", "none", "", "품목코드", "원료코드", "code", "코드"]:
+                        continue
+                    
+                    name_kr = vals[1] if len(vals) > 1 else ""
+                    name_en = vals[2] if len(vals) > 2 else ""
+                    cas_no, supplier = "", ""
+                    
+                    for v in vals:
+                        if "-" in v and len(v) >= 7 and any(char.isdigit() for char in v) and len(v.split("-")) >= 2:
+                            parts = v.split("-")
+                            if len(parts[0]) >= 2 and len(parts[-1]) >= 1 and parts[0].isdigit():
+                                cas_no = v
+                        if any(kw in v for kw in ["주식회사", "코퍼레이션", "사", "AROMA", "LLC", "주", "유한"]):
+                            if len(v) < 30 and v != name_kr:
+                                supplier = v
+
+                    if name_kr.lower() in ["nan", "none"]: name_kr = ""
+                    if name_en.lower() in ["nan", "none"]: name_en = ""
+                    if cas_no.lower() in ["nan", "none"]: cas_no = ""
+                    if supplier.lower() in ["nan", "none"]: supplier = ""
+
+                    new_material = MaterialMaster(
+                        material_code=material_code,
+                        material_name_kr=name_kr,
+                        material_name_en=name_en,
+                        cas_no=cas_no,
+                        supplier=supplier,
+                        unit="Kg",
+                        category=""
+                    )
+                    db.add(new_material)
+                    success_count += 1
+                db.commit()
+                print(f"[Auto-Seed] 총 {success_count}건의 원료 데이터가 자동으로 적재되었습니다.")
+            except Exception as e:
+                print(f"[Auto-Seed Error] {e}")
+    db.close()
 
 init_db()
 
@@ -278,7 +337,7 @@ def dashboard():
 
                 <div class="card">
                     <h2>원료 마스터 엑셀 일괄 업로드</h2>
-                    <p style="margin-top: 5px; color: #64748b;">엑셀 파일을 업로드하면 데이터베이스에 즉시 적재됩니다.</p>
+                    <p style="margin-top: 5px; color: #64748b;">서버 재시작 시 자동 적재되지만, 수동 갱신도 가능합니다.</p>
                     <form onsubmit="uploadExcel(event)" style="margin-top: 15px; display: flex; gap: 10px; align-items: center;">
                         <input type="file" id="excelFile" accept=".xlsx, .xls" required style="padding: 6px; border: 1px solid #cbd5e1; border-radius: 6px; background: #fff;">
                         <button type="submit" class="btn-order">엑셀 파일 업로드 실행</button>
@@ -525,7 +584,6 @@ def dashboard():
     </html>
     """
 
-# 7507건 이상 전체 조회가 가능하도록 limit을 10000으로 확장
 @app.get("/api/v1/materials")
 def get_materials(skip: int = 0, limit: int = 10000):
     try:
@@ -718,7 +776,6 @@ async def upload_materials(file: UploadFile = File(...)):
                 continue
             
             row_str = " ".join(vals)
-            # 헤더 행 데이터베이스 유입 방지
             if ("코드" in row_str or "품목코드" in row_str or "원료코드" in row_str) and ("명" in row_str or "규격" in row_str):
                 continue
             
