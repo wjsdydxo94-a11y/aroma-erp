@@ -3,7 +3,7 @@ import csv
 import io
 import os
 import pandas as pd
-from fastapi import FastAPI, HTTPException, Response, File, UploadFile, Query
+from fastapi import FastAPI, HTTPException, Response, File, UploadFile, Query, Form
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from typing import List
@@ -161,22 +161,6 @@ class MaterialRequest(BaseModel):
     supplier: str
     unit: str = "Kg"
     category: str = ""
-
-class BomItemModel(BaseModel):
-    material_code: str
-    material_name: str
-    qty: float
-    unit: str = "KG"
-    cas_no: str = ""
-    location: str = ""
-
-class BomCreateModel(BaseModel):
-    product_code: str
-    product_name: str
-    process_code: str = "00002"
-    bom_version: str = "1"
-    production_qty: float = 1.0
-    items: List[BomItemModel]
 
 @app.get("/", response_class=HTMLResponse)
 def dashboard():
@@ -425,7 +409,7 @@ def dashboard():
                         <h1>BOM(소요량) 조회 및 관리</h1>
                         <p>등록된 완제품 품목코드를 클릭하면 새로운 창에서 BOM 구성 원료 리스트가 팝업됩니다.</p>
                     </div>
-                    <button type="button" class="btn-order" onclick="openBomCreateModal()">신규 BOM 직접 등록</button>
+                    <button type="button" class="btn-order" onclick="openBomCreateModal()">신규 BOM 엑셀 등록</button>
                 </div>
 
                 <div class="card">
@@ -438,7 +422,7 @@ def dashboard():
                                 <th>생산공정정의</th>
                                 <th>BOM버전</th>
                                 <th>원재료갯수</th>
-                                <th>관리</th>
+                                <th>조회</th>
                             </tr>
                         </thead>
                         <tbody id="bomMasterTableBody">
@@ -481,35 +465,25 @@ def dashboard():
             </div>
         </div>
 
-        <!-- 신규 BOM 직접 등록 모달 -->
+        <!-- 신규 BOM 엑셀 업로드 등록 모달 -->
         <div id="bomCreateModal" class="modal-overlay">
-            <div class="modal-content" style="width: 700px;">
+            <div class="modal-content" style="width: 550px;">
                 <div class="modal-header">
-                    <span>신규 BOM 직접 등록</span>
+                    <span>신규 BOM 엑셀 업로드 등록</span>
                     <span class="modal-close" onclick="closeBomCreateModal()">&times;</span>
                 </div>
                 <div class="modal-body">
-                    <div class="form-grid">
-                        <div class="form-group"><label>생산품목 코드 *</label><input type="text" id="reg_product_code" placeholder="예: 1000011096"></div>
-                        <div class="form-group"><label>품목명/규격 *</label><input type="text" id="reg_product_name" placeholder="예: FILLER-SE1406"></div>
-                        <div class="form-group"><label>생산공정</label><input type="text" id="reg_process_code" value="제품"></div>
-                        <div class="form-group"><label>BOM버전</label><input type="text" id="reg_bom_version" value="2"></div>
-                    </div>
-                    <h3 style="margin-top: 20px; font-size: 14px; color: #334155; border-bottom: 1px solid #cbd5e1; padding-bottom: 5px;">구성 원료 입력</h3>
-                    <div id="bomItemRowsContainer" style="margin-top: 10px; max-height: 250px; overflow-y: auto;">
-                        <div class="form-grid bom-row" style="margin-bottom: 8px; align-items: flex-end;">
-                            <div class="form-group"><label>원료코드</label><input type="text" class="item-code" placeholder="1-022-02-T"></div>
-                            <div class="form-group"><label>원료명</label><input type="text" class="item-name" placeholder="SPEARMINT"></div>
-                            <div class="form-group"><label>수량</label><input type="number" step="0.001" class="item-qty" placeholder="0.18"></div>
-                            <div class="form-group"><label>CAS NO</label><input type="text" class="item-cas" placeholder="8008-79-5"></div>
-                            <div><button type="button" class="btn-delete" onclick="this.closest('.bom-row').remove()" style="padding: 8px;">삭제</button></div>
+                    <form id="bomCreateForm" onsubmit="submitBomCreateExcel(event)">
+                        <div class="form-group"><label>생산품목 코드 *</label><input type="text" id="modal_product_code" placeholder="예: 1000011096" required></div>
+                        <div class="form-group"><label>품목명/규격 *</label><input type="text" id="modal_product_name" placeholder="예: FILLER-SE1406" required></div>
+                        <div class="form-group"><label>생산공정</label><input type="text" id="modal_process_code" value="제품"></div>
+                        <div class="form-group"><label>BOM버전</label><input type="text" id="modal_bom_version" value="2"></div>
+                        <div class="form-group"><label>BOM 엑셀 파일 *</label><input type="file" id="modal_excel_file" accept=".xlsx, .xls" required style="padding: 6px; border: 1px solid #cbd5e1; border-radius: 6px; background: #fff;"></div>
+                        <div class="modal-footer" style="padding: 0; margin-top: 20px;">
+                            <button type="submit" class="btn-order" style="padding: 8px 16px;">엑셀 등록 실행</button>
+                            <button type="button" class="btn-delete" onclick="closeBomCreateModal()" style="padding: 8px 16px; background:#64748b;">닫기</button>
                         </div>
-                    </div>
-                    <button type="button" class="btn-action" onclick="addBomRow()" style="margin-top: 10px; padding: 6px 12px;">+ 원료 행 추가</button>
-                </div>
-                <div class="modal-footer">
-                    <button class="btn-order" onclick="saveNewBom()" style="padding: 8px 16px;">BOM 등록 저장</button>
-                    <button class="btn-delete" onclick="closeBomCreateModal()" style="padding: 8px 16px; background:#64748b;">닫기</button>
+                    </form>
                 </div>
             </div>
         </div>
@@ -676,19 +650,11 @@ def dashboard():
             }
 
             function openBomCreateModal() {
-                document.getElementById('reg_product_code').value = '';
-                document.getElementById('reg_product_name').value = '';
-                document.getElementById('reg_process_code').value = '제품';
-                document.getElementById('reg_bom_version').value = '2';
-                document.getElementById('bomItemRowsContainer').innerHTML = `
-                    <div class="form-grid bom-row" style="margin-bottom: 8px; align-items: flex-end;">
-                        <div class="form-group"><label>원료코드</label><input type="text" class="item-code" placeholder="1-022-02-T"></div>
-                        <div class="form-group"><label>원료명</label><input type="text" class="item-name" placeholder="SPEARMINT"></div>
-                        <div class="form-group"><label>수량</label><input type="number" step="0.001" class="item-qty" placeholder="0.18"></div>
-                        <div class="form-group"><label>CAS NO</label><input type="text" class="item-cas" placeholder="8008-79-5"></div>
-                        <div><button type="button" class="btn-delete" onclick="this.closest('.bom-row').remove()" style="padding: 8px;">삭제</button></div>
-                    </div>
-                `;
+                document.getElementById('modal_product_code').value = '';
+                document.getElementById('modal_product_name').value = '';
+                document.getElementById('modal_process_code').value = '제품';
+                document.getElementById('modal_bom_version').value = '2';
+                document.getElementById('modal_excel_file').value = '';
                 document.getElementById('bomCreateModal').style.display = 'flex';
             }
 
@@ -696,72 +662,37 @@ def dashboard():
                 document.getElementById('bomCreateModal').style.display = 'none';
             }
 
-            function addBomRow() {
-                const container = document.getElementById('bomItemRowsContainer');
-                const div = document.createElement('div');
-                div.className = 'form-grid bom-row';
-                div.style.cssText = 'margin-bottom: 8px; align-items: flex-end;';
-                div.innerHTML = `
-                    <div class="form-group"><label>원료코드</label><input type="text" class="item-code" placeholder="1-022-02-T"></div>
-                    <div class="form-group"><label>원료명</label><input type="text" class="item-name" placeholder="원료명 입력"></div>
-                    <div class="form-group"><label>수량</label><input type="number" step="0.001" class="item-qty" placeholder="0.00"></div>
-                    <div class="form-group"><label>CAS NO</label><input type="text" class="item-cas" placeholder="CAS 번호"></div>
-                    <div><button type="button" class="btn-delete" onclick="this.closest('.bom-row').remove()" style="padding: 8px;">삭제</button></div>
-                `;
-                container.appendChild(div);
-            }
-
-            function saveNewBom() {
-                const productCode = document.getElementById('reg_product_code').value.trim();
-                const productName = document.getElementById('reg_product_name').value.trim();
-                const processCode = document.getElementById('reg_process_code').value.trim();
-                const bomVersion = document.getElementById('reg_bom_version').value.trim();
-
-                if (!productCode || !productName) {
-                    alert("생산품목 코드와 품목명은 필수 입력 항목입니다.");
+            function submitBomCreateExcel(event) {
+                event.preventDefault();
+                const formData = new FormData();
+                const fileInput = document.getElementById('modal_excel_file');
+                if (fileInput.files.length === 0) {
+                    alert("업로드할 엑셀 파일을 선택해 주세요.");
                     return;
                 }
+                formData.append("file", fileInput.files[0]);
+                formData.append("product_code", document.getElementById('modal_product_code').value.trim());
+                formData.append("product_name", document.getElementById('modal_product_name').value.trim());
+                formData.append("process_code", document.getElementById('modal_process_code').value.trim());
+                formData.append("bom_version", document.getElementById('modal_bom_version').value.trim());
 
-                const rows = document.querySelectorAll('.bom-row');
-                const items = [];
-                rows.forEach(row => {
-                    const code = row.querySelector('.item-code').value.trim();
-                    const name = row.querySelector('.item-name').value.trim();
-                    const qty = parseFloat(row.querySelector('.item-qty').value) || 0;
-                    const cas = row.querySelector('.item-cas').value.trim();
-                    if (code) {
-                        items.push({ material_code: code, material_name: name, qty: qty, unit: 'KG', cas_no: cas, location: '' });
-                    }
-                });
-
-                if (items.length === 0) {
-                    alert("최소 1개 이상의 구성 원료를 입력해 주세요.");
-                    return;
-                }
-
-                const payload = {
-                    product_code: productCode,
-                    product_name: productName,
-                    process_code: processCode,
-                    bom_version: bomVersion,
-                    production_qty: 1.0,
-                    items: items
-                };
-
-                fetch('/api/v1/boms/create', {
+                alert("BOM 데이터를 업로드하고 있습니다...");
+                fetch('/api/v1/boms/upload-form', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
+                    body: formData
                 })
                 .then(res => res.json())
                 .then(data => {
                     if (data.status === "SUCCESS") {
-                        alert("BOM이 성공적으로 등록되었습니다.");
+                        alert(data.message);
                         closeBomCreateModal();
                         loadBomMasterList();
                     } else {
-                        alert("등록 실패");
+                        alert("등록 실패: " + JSON.stringify(data));
                     }
+                })
+                .catch(err => {
+                    alert("통신 에러 발생: " + err);
                 });
             }
 
@@ -992,32 +923,63 @@ def get_bom(product_code: str, version: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/api/v1/boms/create")
-def create_bom_direct(data: BomCreateModel):
+@app.post("/api/v1/boms/upload-form")
+async def upload_bom_form(
+    file: UploadFile = File(...),
+    product_code: str = Form(...),
+    product_name: str = Form(...),
+    process_code: str = Form("제품"),
+    bom_version: str = Form("2")
+):
     try:
+        df = pd.read_excel(file.file, header=None)
         conn = sqlite3.connect('erp_factory.db')
         cursor = conn.cursor()
         
-        cursor.execute("SELECT bom_id FROM bom_headers WHERE product_code = ? AND bom_version = ?", (data.product_code, data.bom_version))
+        cursor.execute("SELECT bom_id FROM bom_headers WHERE product_code = ? AND bom_version = ?", (product_code, bom_version))
         row = cursor.fetchone()
         if row:
             bom_id = row[0]
             cursor.execute("DELETE FROM bom_items WHERE bom_id = ?", (bom_id,))
-            cursor.execute("UPDATE bom_headers SET product_name = ?, process_code = ? WHERE bom_id = ?", (data.product_name, data.process_code, bom_id))
+            cursor.execute("UPDATE bom_headers SET product_name = ?, process_code = ? WHERE bom_id = ?", (product_name, process_code, bom_id))
         else:
             cursor.execute("INSERT INTO bom_headers (product_code, product_name, process_code, bom_version, production_qty) VALUES (?, ?, ?, ?, ?)",
-                           (data.product_code, data.product_name, data.process_code, data.bom_version, data.production_qty))
+                           (product_code, product_name, process_code, bom_version, 1.0))
             bom_id = cursor.lastrowid
             
-        for item in data.items:
+        success_count = 0
+        for _, row_data in df.iterrows():
+            vals = [str(val).strip() for val in row_data.values]
+            if not vals or all(v == "" or v.lower() in ["nan", "none"] for v in vals):
+                continue
+            row_str = " ".join(vals)
+            if any(keyword in row_str for keyword in ["회사명", "사업자", "대표", "주소", "TEL", "FAX", "날짜"]):
+                continue
+            if any(kw in row_str for kw in ["품목코드", "원료코드", "CAS NO", "수량"]):
+                continue
+            
+            item_code = vals[0] if len(vals) > 0 else ""
+            if not item_code or item_code.lower() in ["nan", "none", ""] or "회사명" in item_code or "-" not in item_code and len(item_code) > 20:
+                continue
+            
+            item_name = vals[1] if len(vals) > 1 else ""
+            try:
+                qty = float(vals[2]) if len(vals) > 2 and vals[2].replace('.', '', 1).isdigit() else 0.0
+            except:
+                qty = 0.0
+            unit = vals[3] if len(vals) > 3 and vals[3].lower() not in ["nan", "none"] else "KG"
+            cas_no = vals[4] if len(vals) > 4 and vals[4].lower() not in ["nan", "none"] else ""
+            location = vals[5] if len(vals) > 5 and vals[5].lower() not in ["nan", "none"] else ""
+            
             cursor.execute('''
                 INSERT INTO bom_items (bom_id, material_code, material_name, qty, unit, cas_no, location, item_bom_version)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (bom_id, item.material_code, item.material_name, item.qty, item.unit, item.cas_no, item.location, data.bom_version))
+            ''', (bom_id, item_code, item_name, qty, unit, cas_no, location, bom_version))
+            success_count += 1
             
         conn.commit()
         conn.close()
-        return {"status": "SUCCESS", "message": "BOM이 성공적으로 등록되었습니다."}
+        return {"status": "SUCCESS", "message": f"총 {success_count}건의 BOM 처방 항목이 성공적으로 등록되었습니다."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
