@@ -240,7 +240,7 @@ def dashboard():
             .pagination button:disabled { background: #f1f5f9; color: #94a3b8; cursor: not-allowed; }
 
             .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); justify-content: center; align-items: center; z-index: 1000; }
-            .modal-content { background: white; padding: 25px; border-radius: 10px; width: 550px; max-height: 90vh; overflow-y: auto; box-shadow: 0 4px 20px rgba(0,0,0,0.2); }
+            .modal-content { background: white; padding: 25px; border-radius: 10px; width: 500px; max-height: 90vh; overflow-y: auto; box-shadow: 0 4px 20px rgba(0,0,0,0.2); }
             .modal-header { font-size: 16px; font-weight: bold; margin-bottom: 15px; border-bottom: 2px solid #cbd5e1; padding-bottom: 8px; display: flex; justify-content: space-between; align-items: center; color: #1e293b; }
             .modal-close { cursor: pointer; font-size: 18px; color: #64748b; }
             .modal-body .form-group { margin-bottom: 12px; }
@@ -409,7 +409,7 @@ def dashboard():
                         <h1>BOM(소요량) 조회 및 관리</h1>
                         <p>등록된 완제품 품목코드를 클릭하면 새로운 창에서 BOM 구성 원료 리스트가 팝업됩니다.</p>
                     </div>
-                    <button type="button" class="btn-order" onclick="openBomCreateModal()">신규 BOM 엑셀 등록</button>
+                    <button type="button" class="btn-order" onclick="openBomCreateModal()">신규 BOM 엑셀 업로드 등록</button>
                 </div>
 
                 <div class="card">
@@ -465,22 +465,21 @@ def dashboard():
             </div>
         </div>
 
-        <!-- 신규 BOM 엑셀 업로드 등록 모달 -->
+        <!-- 신규 BOM 엑셀 업로드 등록 모달 (자동 인식) -->
         <div id="bomCreateModal" class="modal-overlay">
-            <div class="modal-content" style="width: 550px;">
+            <div class="modal-content" style="width: 500px;">
                 <div class="modal-header">
-                    <span>신규 BOM 엑셀 업로드 등록</span>
+                    <span>신규 BOM 엑셀 업로드 (자동 인식)</span>
                     <span class="modal-close" onclick="closeBomCreateModal()">&times;</span>
                 </div>
                 <div class="modal-body">
+                    <p style="margin-bottom: 15px; color: #475569; font-size: 13px;">
+                        엑셀 파일명(예: <b>FILLER-SE1406.xlsx</b>)을 기반으로 품목코드와 품목명이 자동으로 인식됩니다. 파일을 선택하고 등록을 실행해 주세요.
+                    </p>
                     <form id="bomCreateForm" onsubmit="submitBomCreateExcel(event)">
-                        <div class="form-group"><label>생산품목 코드 *</label><input type="text" id="modal_product_code" placeholder="예: 1000011096" required></div>
-                        <div class="form-group"><label>품목명/규격 *</label><input type="text" id="modal_product_name" placeholder="예: FILLER-SE1406" required></div>
-                        <div class="form-group"><label>생산공정</label><input type="text" id="modal_process_code" value="제품"></div>
-                        <div class="form-group"><label>BOM버전</label><input type="text" id="modal_bom_version" value="2"></div>
-                        <div class="form-group"><label>BOM 엑셀 파일 *</label><input type="file" id="modal_excel_file" accept=".xlsx, .xls" required style="padding: 6px; border: 1px solid #cbd5e1; border-radius: 6px; background: #fff;"></div>
+                        <div class="form-group"><label>BOM 엑셀 파일 선택 *</label><input type="file" id="modal_excel_file" accept=".xlsx, .xls" required style="padding: 6px; border: 1px solid #cbd5e1; border-radius: 6px; background: #fff; width:100%;"></div>
                         <div class="modal-footer" style="padding: 0; margin-top: 20px;">
-                            <button type="submit" class="btn-order" style="padding: 8px 16px;">엑셀 등록 실행</button>
+                            <button type="submit" class="btn-order" style="padding: 8px 16px;">자동 인식 및 등록 실행</button>
                             <button type="button" class="btn-delete" onclick="closeBomCreateModal()" style="padding: 8px 16px; background:#64748b;">닫기</button>
                         </div>
                     </form>
@@ -650,10 +649,6 @@ def dashboard():
             }
 
             function openBomCreateModal() {
-                document.getElementById('modal_product_code').value = '';
-                document.getElementById('modal_product_name').value = '';
-                document.getElementById('modal_process_code').value = '제품';
-                document.getElementById('modal_bom_version').value = '2';
                 document.getElementById('modal_excel_file').value = '';
                 document.getElementById('bomCreateModal').style.display = 'flex';
             }
@@ -671,13 +666,9 @@ def dashboard():
                     return;
                 }
                 formData.append("file", fileInput.files[0]);
-                formData.append("product_code", document.getElementById('modal_product_code').value.trim());
-                formData.append("product_name", document.getElementById('modal_product_name').value.trim());
-                formData.append("process_code", document.getElementById('modal_process_code').value.trim());
-                formData.append("bom_version", document.getElementById('modal_bom_version').value.trim());
 
-                alert("BOM 데이터를 업로드하고 있습니다...");
-                fetch('/api/v1/boms/upload-form', {
+                alert("엑셀 파일을 분석하여 BOM 정보를 자동으로 인식하고 있습니다...");
+                fetch('/api/v1/boms/upload-auto', {
                     method: 'POST',
                     body: formData
                 })
@@ -923,16 +914,32 @@ def get_bom(product_code: str, version: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/api/v1/boms/upload-form")
-async def upload_bom_form(
-    file: UploadFile = File(...),
-    product_code: str = Form(...),
-    product_name: str = Form(...),
-    process_code: str = Form("제품"),
-    bom_version: str = Form("2")
-):
+@app.post("/api/v1/boms/upload-auto")
+async def upload_bom_auto(file: UploadFile = File(...)):
     try:
+        filename = file.filename
+        base_name = os.path.splitext(filename)[0] # 예: FILLER-SE1406
+        
         df = pd.read_excel(file.file, header=None)
+        
+        product_code = base_name
+        product_name = base_name
+        process_code = "제품"
+        bom_version = "2"
+        
+        # 상단 행에서 품목코드나 버전 정보 탐색
+        for idx, row in df.head(5).iterrows():
+            row_vals = [str(v).strip() for v in row.values if pd.notnull(v)]
+            row_str = " ".join(row_vals)
+            if "품목코드" in row_str or "제품코드" in row_str:
+                for v in row_vals:
+                    if v not in ["품목코드", "제품코드", ":"]:
+                        product_code = v
+            if "버전" in row_str:
+                for v in row_vals:
+                    if v.isdigit():
+                        bom_version = v
+
         conn = sqlite3.connect('erp_factory.db')
         cursor = conn.cursor()
         
@@ -949,22 +956,22 @@ async def upload_bom_form(
             
         success_count = 0
         for _, row_data in df.iterrows():
-            vals = [str(val).strip() for val in row_data.values]
-            if not vals or all(v == "" or v.lower() in ["nan", "none"] for v in vals):
+            vals = [str(val).strip() for val in row_data.values if pd.notnull(val)]
+            if not vals:
                 continue
             row_str = " ".join(vals)
             if any(keyword in row_str for keyword in ["회사명", "사업자", "대표", "주소", "TEL", "FAX", "날짜"]):
                 continue
-            if any(kw in row_str for kw in ["품목코드", "원료코드", "CAS NO", "수량"]):
+            if any(kw in row_str for kw in ["품목코드", "원료코드", "CAS NO", "수량", "생산품목"]):
                 continue
             
             item_code = vals[0] if len(vals) > 0 else ""
-            if not item_code or item_code.lower() in ["nan", "none", ""] or "회사명" in item_code or "-" not in item_code and len(item_code) > 20:
+            if not item_code or item_code.lower() in ["nan", "none", ""] or "회사명" in item_code or "-" not in item_code and len(item_code) > 25:
                 continue
             
             item_name = vals[1] if len(vals) > 1 else ""
             try:
-                qty = float(vals[2]) if len(vals) > 2 and vals[2].replace('.', '', 1).isdigit() else 0.0
+                qty = float(vals[2]) if len(vals) > 2 and str(vals[2]).replace('.', '', 1).isdigit() else 0.0
             except:
                 qty = 0.0
             unit = vals[3] if len(vals) > 3 and vals[3].lower() not in ["nan", "none"] else "KG"
@@ -979,7 +986,7 @@ async def upload_bom_form(
             
         conn.commit()
         conn.close()
-        return {"status": "SUCCESS", "message": f"총 {success_count}건의 BOM 처방 항목이 성공적으로 등록되었습니다."}
+        return {"status": "SUCCESS", "message": f"품목 [{product_code}] BOM 구성 원료 총 {success_count}건이 자동으로 인식되어 등록되었습니다."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
