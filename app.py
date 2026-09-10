@@ -403,28 +403,37 @@ def dashboard():
 
             <!-- [탭 3] BOM 수정 및 관리 탭 -->
             <div id="bom-tab" class="tab-content">
-                <div class="card" style="display:flex; justify-content:space-between; align-items:center;">
-                    <div>
-                        <h1>BOM 수정 및 관리</h1>
-                        <p>제품별 표준 처방(BOM) 조회 및 엑셀 일괄 업로드 관리</p>
-                    </div>
-                    <form onsubmit="uploadBomExcel(event)" style="display: flex; gap: 10px; align-items: center;">
-                        <input type="file" id="bomExcelFile" accept=".xlsx, .xls" required style="padding: 6px; border: 1px solid #cbd5e1; border-radius: 6px; background: #fff; font-size: 12px;">
-                        <button type="submit" class="btn-order" style="padding: 6px 12px; font-size: 12px;">BOM 엑셀 업로드</button>
-                    </form>
+                <div class="card">
+                    <h1>BOM(소요량) 조회 및 관리</h1>
+                    <p>등록된 완제품 품목을 클릭하거나 조회하여 내부 원료 리스트 및 소요량을 확인합니다.</p>
                 </div>
 
                 <div class="card">
-                    <div class="form-grid" style="background: #f8fafc; padding: 15px; border-radius: 8px; border: 1px solid #e2e8f0;">
-                        <div class="form-group"><label>생산품목</label><input type="text" id="bom_product_code" value="1000011096 FILLER-SE1406"></div>
-                        <div class="form-group"><label>생산공정</label><input type="text" id="bom_process_code" value="00002"></div>
-                        <div class="form-group"><label>BOM버전</label><input type="text" id="bom_version" value="2"></div>
-                        <div class="form-group"><label>생산수량</label><input type="number" id="bom_production_qty" value="1"></div>
-                    </div>
+                    <h2>등록된 완제품 품목 리스트</h2>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>품목코드</th>
+                                <th>품목명[규격]</th>
+                                <th>생산공정정의</th>
+                                <th>BOM버전</th>
+                                <th>원재료갯수</th>
+                                <th>조회</th>
+                            </tr>
+                        </thead>
+                        <tbody id="bomMasterTableBody">
+                            <tr><td colspan="6" style="text-align: center;">BOM 마스터 목록을 불러오는 중...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
 
-                    <div style="margin-top: 20px; display: flex; justify-content: space-between; align-items: center;">
-                        <h3 style="font-size: 14px; color: #334155;">BOM 구성 원료 리스트</h3>
-                        <button type="button" class="btn-action" onclick="loadBomDetails()" style="padding: 6px 14px;">BOM 조회</button>
+                <div class="card" id="bomDetailCard" style="display:none;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                        <h2 id="bomDetailTitle">선택된 품목 BOM 구성 원료 리스트</h2>
+                        <form onsubmit="uploadBomExcel(event)" style="display: flex; gap: 10px; align-items: center;">
+                            <input type="file" id="bomExcelFile" accept=".xlsx, .xls" required style="padding: 4px; border: 1px solid #cbd5e1; border-radius: 4px; background: #fff; font-size: 12px;">
+                            <button type="submit" class="btn-order" style="padding: 6px 12px; font-size: 12px;">BOM 엑셀 업로드</button>
+                        </form>
                     </div>
 
                     <table>
@@ -442,7 +451,7 @@ def dashboard():
                             </tr>
                         </thead>
                         <tbody id="bomTableBody">
-                            <tr><td colspan="9" style="text-align: center;">상단 품목 코드로 BOM을 조회하거나 업로드해 주세요.</td></tr>
+                            <tr><td colspan="9" style="text-align: center;">품목의 [조회]를 클릭하여 원료 리스트를 확인하세요.</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -498,6 +507,8 @@ def dashboard():
             let currentPage = 1;
             const pageSize = 30;
             let currentSearch = '';
+            let selectedBomProductCode = '';
+            let selectedBomVersion = '2';
 
             function switchTab(tabId) {
                 document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
@@ -505,7 +516,7 @@ def dashboard():
                 if (tabId === 'materials-tab') {
                     loadMaterials(1);
                 } else if (tabId === 'bom-tab') {
-                    loadBomDetails();
+                    loadBomMasterList();
                 }
             }
 
@@ -551,17 +562,44 @@ def dashboard():
                 });
             }
 
-            function loadBomDetails() {
-                const productCode = document.getElementById('bom_product_code').value;
-                const bomVersion = document.getElementById('bom_version').value;
+            function loadBomMasterList() {
+                fetch('/api/v1/boms/master')
+                .then(res => res.json())
+                .then(data => {
+                    const tbody = document.getElementById('bomMasterTableBody');
+                    tbody.innerHTML = '';
+                    if (!data.data || data.data.length === 0) {
+                        tbody.innerHTML = '<tr><td colspan="6" style="text-align: center;">등록된 BOM 완제품 품목이 없습니다.</td></tr>';
+                        return;
+                    }
+                    data.data.forEach(row => {
+                        const tr = document.createElement('tr');
+                        tr.innerHTML = `
+                            <td><span class="clickable-no" onclick="selectBomProduct('${row.product_code}', '${row.bom_version}')">${row.product_code}</span></td>
+                            <td>${row.product_name}</td>
+                            <td>제품</td>
+                            <td>${row.bom_version}</td>
+                            <td>${row.item_count}</td>
+                            <td><button class="btn-action" onclick="selectBomProduct('${row.product_code}', '${row.bom_version}')">조회</button></td>
+                        `;
+                        tbody.appendChild(tr);
+                    });
+                });
+            }
+
+            function selectBomProduct(productCode, version) {
+                selectedBomProductCode = productCode;
+                selectedBomVersion = version;
+                document.getElementById('bomDetailCard').style.display = 'block';
+                document.getElementById('bomDetailTitle').innerText = `품목 [${productCode}] BOM 구성 원료 리스트`;
                 
-                fetch(`/api/v1/boms?product_code=${encodeURIComponent(productCode)}&version=${encodeURIComponent(bomVersion)}`)
+                fetch(`/api/v1/boms?product_code=${encodeURIComponent(productCode)}&version=${encodeURIComponent(version)}`)
                 .then(res => res.json())
                 .then(data => {
                     const tbody = document.getElementById('bomTableBody');
                     tbody.innerHTML = '';
                     if (!data.items || data.items.length === 0) {
-                        tbody.innerHTML = '<tr><td colspan="9" style="text-align: center;">해당 품목의 등록된 BOM 구성 내역이 없습니다. (엑셀 업로드를 진행해 주세요)</td></tr>';
+                        tbody.innerHTML = '<tr><td colspan="9" style="text-align: center;">해당 품목의 원료 구성 내역이 없습니다. (엑셀 업로드를 진행해 주세요)</td></tr>';
                         return;
                     }
                     data.items.forEach((item, index) => {
@@ -575,7 +613,7 @@ def dashboard():
                             <td>${item.unit || 'KG'}</td>
                             <td>${item.cas_no || ''}</td>
                             <td>${item.location || ''}</td>
-                            <td>${item.item_bom_version || bomVersion}</td>
+                            <td>${item.item_bom_version || version}</td>
                         `;
                         tbody.appendChild(tr);
                     });
@@ -584,6 +622,10 @@ def dashboard():
 
             function uploadBomExcel(event) {
                 event.preventDefault();
+                if (!selectedBomProductCode) {
+                    alert("상단 마스터 리스트에서 먼저 품목을 선택(조회)해 주세요.");
+                    return;
+                }
                 const fileInput = document.getElementById('bomExcelFile');
                 if (fileInput.files.length === 0) {
                     alert("업로드할 BOM 엑셀 파일을 선택해 주세요.");
@@ -592,11 +634,8 @@ def dashboard():
                 const formData = new FormData();
                 formData.append("file", fileInput.files[0]);
 
-                const productCode = document.getElementById('bom_product_code').value;
-                const bomVersion = document.getElementById('bom_version').value;
-
-                alert("BOM 데이터를 업로드합니다...");
-                fetch(`/api/v1/boms/upload?product_code=${encodeURIComponent(productCode)}&bom_version=${encodeURIComponent(bomVersion)}`, {
+                alert(`품목 [${selectedBomProductCode}]의 BOM 데이터를 업로드합니다...`);
+                fetch(`/api/v1/boms/upload?product_code=${encodeURIComponent(selectedBomProductCode)}&bom_version=${encodeURIComponent(selectedBomVersion)}`, {
                     method: 'POST',
                     body: formData
                 })
@@ -604,7 +643,8 @@ def dashboard():
                 .then(resData => {
                     if (resData.status === "SUCCESS") {
                         alert(resData.message);
-                        loadBomDetails();
+                        selectBomProduct(selectedBomProductCode, selectedBomVersion);
+                        loadBomMasterList();
                     } else {
                         alert("업로드 실패: " + JSON.stringify(resData));
                     }
@@ -646,8 +686,6 @@ def dashboard():
                         alert("신규 원료가 등록되었습니다.");
                         closeCreateModal();
                         loadMaterials(1);
-                    } else {
-                        alert("등록 실패");
                     }
                 });
             }
@@ -805,6 +843,19 @@ def dashboard():
 
 # --- BOM API 엔드포인트 ---
 
+@app.get("/api/v1/boms/master")
+def get_bom_master():
+    try:
+        conn = sqlite3.connect('erp_factory.db')
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute("SELECT h.*, (SELECT COUNT(*) FROM bom_items i WHERE i.bom_id = h.bom_id) as item_count FROM bom_headers h")
+        rows = cursor.fetchall()
+        conn.close()
+        return {"status": "SUCCESS", "data": [dict(r) for r in rows]}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/api/v1/boms")
 def get_bom(product_code: str, version: str):
     try:
@@ -850,11 +901,13 @@ async def upload_bom_excel(file: UploadFile = File(...), product_code: str = Que
             if not vals or all(v == "" or v.lower() in ["nan", "none"] for v in vals):
                 continue
             row_str = " ".join(vals)
+            if any(keyword in row_str for keyword in ["회사명", "사업자", "대표", "주소", "TEL", "FAX", "날짜"]):
+                continue
             if any(kw in row_str for kw in ["품목코드", "원료코드", "CAS NO", "수량"]):
                 continue
             
             item_code = vals[0] if len(vals) > 0 else ""
-            if not item_code or item_code.lower() in ["nan", "none", ""]:
+            if not item_code or item_code.lower() in ["nan", "none", ""] or "회사명" in item_code or "-" not in item_code and len(item_code) > 20:
                 continue
             
             item_name = vals[1] if len(vals) > 1 else ""
