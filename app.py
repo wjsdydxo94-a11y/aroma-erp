@@ -2,7 +2,7 @@ import sqlite3
 import csv
 import pandas as pd
 import io
-from fastapi import FastAPI, HTTPException, Response
+from fastapi import FastAPI, HTTPException, Response, HTMLResponse
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from database import engine, Base
@@ -728,3 +728,181 @@ async def upload_materials(file: UploadFile = File(...)):
         return {"status": "SUCCESS", "message": f"총 {len(df)}건의 원료 데이터가 성공적으로 적재되었습니다."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+@app.get("/", response_class=HTMLResponse)
+def dashboard():
+    return """
+    <!DOCTYPE html>
+    <html lang="ko">
+    <head>
+        <meta charset="UTF-8">
+        <title>Aroma Resource ERP</title>
+        <style>
+            * { box-sizing: border-box; margin: 0; padding: 0; }
+            body { display: flex; height: 100vh; overflow: hidden; background-color: #F8FAFC; }
+            .aroma-sidebar {
+              width: 260px;
+              height: 100vh;
+              background-color: #1E242B;
+              color: #E2E8F0;
+              font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, sans-serif;
+              display: flex;
+              flex-direction: column;
+              box-shadow: 4px 0 20px rgba(0, 0, 0, 0.15);
+            }
+            .sidebar-header {
+              padding: 24px 20px 18px 20px;
+              border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+            }
+            .brand-logo-area {
+              display: flex;
+              flex-direction: column;
+              gap: 6px;
+            }
+            .logo-text {
+              font-size: 19px;
+              font-weight: 700;
+              color: #FFFFFF;
+              letter-spacing: -0.5px;
+            }
+            .logo-wave-line {
+              height: 3px;
+              width: 100%;
+              background: linear-gradient(90deg, #00A8FF 0%, #0077FF 100%);
+              border-radius: 2px;
+            }
+            .sidebar-header .sub-title {
+              display: block;
+              font-size: 10px;
+              color: #8C9BA5;
+              text-transform: uppercase;
+              letter-spacing: 1px;
+              margin-top: 8px;
+            }
+            .sidebar-nav {
+              padding: 15px 10px;
+              overflow-y: auto;
+              flex: 1;
+            }
+            .sidebar-nav::-webkit-scrollbar { width: 4px; }
+            .sidebar-nav::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); border-radius: 2px; }
+            .aroma-sidebar details {
+              margin-bottom: 6px;
+              border-radius: 6px;
+              transition: background 0.2s;
+            }
+            .aroma-sidebar details[open] { background-color: rgba(255, 255, 255, 0.02); }
+            .aroma-sidebar summary {
+              padding: 11px 14px;
+              font-size: 13.5px;
+              font-weight: 500;
+              cursor: pointer;
+              color: #CBD5E1;
+              list-style: none;
+              border-radius: 6px;
+              display: flex;
+              align-items: center;
+              justify-content: space-between;
+            }
+            .aroma-sidebar summary::-webkit-details-marker { display: none; }
+            .aroma-sidebar summary:hover {
+              background-color: rgba(0, 168, 255, 0.08);
+              color: #00A8FF;
+            }
+            .aroma-sidebar ul {
+              list-style: none;
+              padding: 4px 0 6px 14px;
+              margin: 0;
+            }
+            .aroma-sidebar li a {
+              display: block;
+              padding: 7px 12px;
+              font-size: 12.5px;
+              color: #94A3B8;
+              text-decoration: none;
+              border-radius: 4px;
+              transition: all 0.2s ease;
+            }
+            .aroma-sidebar li a:hover {
+              color: #FFFFFF;
+              background-color: rgba(0, 168, 255, 0.12);
+              padding-left: 15px;
+            }
+            .aroma-sidebar li a.active {
+              color: #FFFFFF;
+              background: linear-gradient(90deg, rgba(0, 168, 255, 0.25) 0%, rgba(0, 119, 255, 0.05) 100%);
+              border-left: 3px solid #00A8FF;
+              padding-left: 12px;
+              font-weight: 600;
+            }
+            .main-content {
+              flex: 1;
+              padding: 40px;
+              overflow-y: auto;
+            }
+            .main-content h1 { color: #1E242B; font-size: 24px; margin-bottom: 10px; }
+            .main-content p { color: #64748B; font-size: 14px; }
+        </style>
+    </head>
+    <body>
+        <aside class="aroma-sidebar">
+          <div class="sidebar-header">
+            <div class="brand-logo-area">
+              <span class="logo-text">Aroma Resource</span>
+              <div class="logo-wave-line"></div>
+            </div>
+            <span class="sub-title">ERP Management System</span>
+          </div>
+          <nav class="sidebar-nav">
+            <details>
+              <summary>견적서 관리</summary>
+              <ul>
+                <li><a href="#">견적 입력</a></li>
+                <li><a href="#">견적 조회 및 현황</a></li>
+              </ul>
+            </details>
+            <details>
+              <summary>주문서 관리</summary>
+              <ul>
+                <li><a href="#">주문 등록</a></li>
+                <li><a href="#">주문서 조회</a></li>
+              </ul>
+            </details>
+            <details>
+              <summary>판매 관리</summary>
+              <ul>
+                <li><a href="#">판매 조회</a></li>
+                <li><a href="#">판매 입력</a></li>
+                <li><a href="#">판매 현황</a></li>
+                <li><a href="#">거래명세서 인쇄</a></li>
+              </ul>
+            </details>
+            <details>
+              <summary>입고 / 구매</summary>
+              <ul>
+                <li><a href="#">발주 관리</a></li>
+                <li><a href="#">입고 등록 및 검수</a></li>
+              </ul>
+            </details>
+            <details open>
+              <summary>원료 마스터 관리</summary>
+              <ul>
+                <li><a href="#" class="active">원료 리스트 조회 (7,507건)</a></li>
+                <li><a href="#">원료 마스터 일괄 업로드</a></li>
+              </ul>
+            </details>
+            <details>
+              <summary>생산 및 배치</summary>
+              <ul>
+                <li><a href="#">작업 지시서</a></li>
+                <li><a href="#">배치 투입 이력</a></li>
+              </ul>
+            </details>
+          </nav>
+        </aside>
+        <main class="main-content">
+            <h1>아로마리소스 통합 ERP 시스템</h1>
+            <p>좌측 메뉴를 통해 견적, 주문, 판매, 입고, 원료 마스터(7,507건 적재 완료) 및 생산 관리를 수행할 수 있습니다.</p>
+        </main>
+    </body>
+    </html>
+    """
