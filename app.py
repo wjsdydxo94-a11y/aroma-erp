@@ -281,7 +281,7 @@ def dashboard():
 
                 <div class="card">
                     <h2>원료 마스터 엑셀 일괄 업로드</h2>
-                    <p style="margin-top: 5px; color: #64748b;">원료코드가 포함된 엑셀 파일을 업로드하면 기존 데이터가 자동 갱신되거나 신규 등록됩니다.</p>
+                    <p style="margin-top: 5px; color: #64748b;">원료코드/품목코드가 포함된 엑셀 파일을 업로드하면 데이터가 즉시 적재됩니다.</p>
                     <form onsubmit="uploadExcel(event)" style="margin-top: 15px; display: flex; gap: 10px; align-items: center;">
                         <input type="file" id="excelFile" accept=".xlsx, .xls" required style="padding: 6px; border: 1px solid #cbd5e1; border-radius: 6px; background: #fff;">
                         <button type="submit" class="btn-order">엑셀 파일 업로드 실행</button>
@@ -328,7 +328,7 @@ def dashboard():
                     const tbody = document.getElementById('materialTableBody');
                     tbody.innerHTML = '';
                     if (!data.data || data.data.length === 0) {
-                        tbody.innerHTML = '<tr><td colspan="7" style="text-align: center;">등록된 원료 데이터가 없습니다.</td></tr>';
+                        tbody.innerHTML = '<tr><td colspan="7" style="text-align: center;">등록된 원료 데이터가 없습니다. (엑셀 업로드를 진행해 주세요)</td></tr>';
                         return;
                     }
                     data.data.forEach(row => {
@@ -360,7 +360,7 @@ def dashboard():
                 const formData = new FormData();
                 formData.append("file", fileInput.files[0]);
 
-                alert("업로드를 진행합니다. 잠시만 기다려 주세요 (수천 건의 데이터는 몇 초 소요됩니다).");
+                alert("업로드를 진행합니다. 수천 건의 데이터는 몇 초 정도 소요될 수 있습니다.");
                 fetch('/api/v1/materials/upload', {
                     method: 'POST',
                     body: formData
@@ -711,21 +711,23 @@ def export_csv():
 async def upload_materials(file: UploadFile = File(...)):
     try:
         df = pd.read_excel(file.file)
-        # 엑셀 컬럼명 공백 제거 및 유연한 매칭 처리
+        # 엑셀 컬럼명 공백 제거
         df.columns = [str(c).strip() for c in df.columns]
         db = SessionLocal()
         success_count = 0
         for _, row in df.iterrows():
-            material_code = str(row.get("원료코드") or row.get("원료 코드") or row.get("Code") or "").strip()
+            # 품목코드, 원료코드 모두 수용
+            material_code = str(row.get("품목코드") or row.get("원료코드") or row.get("원료 코드") or row.get("Code") or row.get("코드") or "").strip()
             if not material_code or material_code.lower() in ["nan", "none", ""]:
                 continue
             
-            name_kr = str(row.get("원료명(국문)") or row.get("원료명 (국문)") or row.get("국문명") or "").strip()
-            name_en = str(row.get("원료명(영문)") or row.get("원료명 (영문)") or row.get("영문명") or "").strip()
-            cas_no = str(row.get("CAS 번호") or row.get("CAS번호") or row.get("CAS No") or row.get("CAS") or "").strip()
-            supplier = str(row.get("공급사") or row.get("제조사") or "").strip()
+            # 품목명, 국문명 등 수용
+            name_kr = str(row.get("품목명") or row.get("원료명(국문)") or row.get("원료명 (국문)") or row.get("국문명") or "").strip()
+            name_en = str(row.get("영문명") or row.get("원료명(영문)") or row.get("원료명 (영문)") or "").strip()
+            cas_no = str(row.get("CAS No.") or row.get("CAS No") or row.get("CAS번호") or row.get("CAS 번호") or row.get("CAS") or "").strip()
+            supplier = str(row.get("구매처명") or row.get("공급사") or row.get("제조사") or "").strip()
             unit = str(row.get("관리단위") or row.get("단위") or "Kg").strip()
-            category = str(row.get("원료분류") or row.get("분류") or "").strip()
+            category = str(row.get("품목구분") or row.get("원료분류") or row.get("분류") or "").strip()
 
             if name_kr.lower() in ["nan", "none"]: name_kr = ""
             if name_en.lower() in ["nan", "none"]: name_en = ""
