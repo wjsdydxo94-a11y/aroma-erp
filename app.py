@@ -365,7 +365,7 @@ def dashboard():
             <div id="materials-tab" class="tab-content">
                 <div class="card">
                     <h1>원료 마스터 관리 (Raw Material Master)</h1>
-                    <p>아로마리소스 향료 원료 품목 리스트 조회, 검색, 수정 및 신규 등록 관리</p>
+                    <p>아로마리소스 향료 원료 품목 리스트 조회, 검색, 수정 및 신규 등록 관리 (BOM과 실시간 연동)</p>
                 </div>
 
                 <div class="card">
@@ -407,7 +407,7 @@ def dashboard():
                 <div class="card" style="display:flex; justify-content:space-between; align-items:center;">
                     <div>
                         <h1>BOM(소요량) 조회 및 관리</h1>
-                        <p>등록된 완제품 품목코드를 클릭하면 새로운 창에서 BOM 구성 원료 리스트가 팝업됩니다.</p>
+                        <p>등록된 완제품 품목코드를 클릭하면 새로운 창에서 BOM 구성 원료 리스트가 팝업되며, 원료 마스터와 자동 연동됩니다.</p>
                     </div>
                     <button type="button" class="btn-order" onclick="openBomCreateModal()">신규 BOM 엑셀 업로드 등록</button>
                 </div>
@@ -469,17 +469,17 @@ def dashboard():
         <div id="bomCreateModal" class="modal-overlay">
             <div class="modal-content" style="width: 500px;">
                 <div class="modal-header">
-                    <span>신규 BOM 엑셀 업로드 (자동 인식)</span>
+                    <span>신규 BOM 엑셀 업로드 (마스터 연동)</span>
                     <span class="modal-close" onclick="closeBomCreateModal()">&times;</span>
                 </div>
                 <div class="modal-body">
                     <p style="margin-bottom: 15px; color: #475569; font-size: 13px;">
-                        엑셀 파일명(예: <b>FILLER-SE1406.xlsx</b>)을 기반으로 품목코드와 품목명이 자동으로 인식됩니다. 파일을 선택하고 등록을 실행해 주세요.
+                        엑셀 파일명(예: <b>FILLER-SE1406.xlsx</b>)을 기반으로 품목코드가 자동 인식되며, 포함된 원료들은 <b>원료 마스터</b>에 자동으로 동기화 및 등록됩니다.
                     </p>
                     <form id="bomCreateForm" onsubmit="submitBomCreateExcel(event)">
                         <div class="form-group"><label>BOM 엑셀 파일 선택 *</label><input type="file" id="modal_excel_file" accept=".xlsx, .xls" required style="padding: 6px; border: 1px solid #cbd5e1; border-radius: 6px; background: #fff; width:100%;"></div>
                         <div class="modal-footer" style="padding: 0; margin-top: 20px;">
-                            <button type="submit" class="btn-order" style="padding: 8px 16px;">자동 인식 및 등록 실행</button>
+                            <button type="submit" class="btn-order" style="padding: 8px 16px;">자동 인식 및 마스터 동기화 실행</button>
                             <button type="button" class="btn-delete" onclick="closeBomCreateModal()" style="padding: 8px 16px; background:#64748b;">닫기</button>
                         </div>
                     </form>
@@ -491,7 +491,7 @@ def dashboard():
         <div id="createModal" class="modal-overlay">
             <div class="modal-content">
                 <div class="modal-header">
-                    <span>신규 원료 등록</span>
+                    <span>신규 원료 등록 (마스터 연동)</span>
                     <span class="modal-close" onclick="closeCreateModal()">&times;</span>
                 </div>
                 <div class="modal-body">
@@ -667,7 +667,7 @@ def dashboard():
                 }
                 formData.append("file", fileInput.files[0]);
 
-                alert("엑셀 파일을 분석하여 BOM 정보를 자동으로 인식하고 있습니다...");
+                alert("BOM 데이터를 분석하고 원료 마스터와 동기화하고 있습니다...");
                 fetch('/api/v1/boms/upload-auto', {
                     method: 'POST',
                     body: formData
@@ -918,7 +918,7 @@ def get_bom(product_code: str, version: str):
 async def upload_bom_auto(file: UploadFile = File(...)):
     try:
         filename = file.filename
-        base_name = os.path.splitext(filename)[0] # 예: FILLER-SE1406
+        base_name = os.path.splitext(filename)[0]
         
         df = pd.read_excel(file.file, header=None)
         
@@ -927,7 +927,6 @@ async def upload_bom_auto(file: UploadFile = File(...)):
         process_code = "제품"
         bom_version = "2"
         
-        # 상단 행에서 품목코드나 버전 정보 탐색
         for idx, row in df.head(5).iterrows():
             row_vals = [str(v).strip() for v in row.values if pd.notnull(v)]
             row_str = " ".join(row_vals)
@@ -954,6 +953,7 @@ async def upload_bom_auto(file: UploadFile = File(...)):
                            (product_code, product_name, process_code, bom_version, 1.0))
             bom_id = cursor.lastrowid
             
+        db_mat = SessionLocal()
         success_count = 0
         for _, row_data in df.iterrows():
             vals = [str(val).strip() for val in row_data.values if pd.notnull(val)]
@@ -978,15 +978,32 @@ async def upload_bom_auto(file: UploadFile = File(...)):
             cas_no = vals[4] if len(vals) > 4 and vals[4].lower() not in ["nan", "none"] else ""
             location = vals[5] if len(vals) > 5 and vals[5].lower() not in ["nan", "none"] else ""
             
+            # BOM 항목 등록
             cursor.execute('''
                 INSERT INTO bom_items (bom_id, material_code, material_name, qty, unit, cas_no, location, item_bom_version)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ''', (bom_id, item_code, item_name, qty, unit, cas_no, location, bom_version))
+            
+            # 원료 마스터(MaterialMaster)와 자동 연동 (없으면 자동 등록)
+            existing_mat = db_mat.query(MaterialMaster).filter(MaterialMaster.material_code == item_code).first()
+            if not existing_mat:
+                new_m = MaterialMaster(
+                    material_code=item_code,
+                    material_name_kr=item_name,
+                    material_name_en="",
+                    cas_no=cas_no,
+                    supplier="",
+                    unit=unit,
+                    category=""
+                )
+                db_mat.add(new_m)
             success_count += 1
             
+        db_mat.commit()
+        db_mat.close()
         conn.commit()
         conn.close()
-        return {"status": "SUCCESS", "message": f"품목 [{product_code}] BOM 구성 원료 총 {success_count}건이 자동으로 인식되어 등록되었습니다."}
+        return {"status": "SUCCESS", "message": f"품목 [{product_code}] BOM 구성 원료 총 {success_count}건이 등록되었으며, 원료 마스터와 자동 동기화되었습니다."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
