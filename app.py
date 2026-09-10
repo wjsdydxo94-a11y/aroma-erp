@@ -205,8 +205,9 @@ def dashboard():
             .badge-success { background: #22c55e; }
             .badge-progress { background: #d97706; }
 
-            .search-bar { display: flex; gap: 10px; margin-bottom: 15px; align-items: center; }
-            .search-bar input { padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; width: 300px; font-size: 13px; }
+            .search-bar { display: flex; gap: 10px; margin-bottom: 15px; align-items: center; justify-content: space-between; }
+            .search-left { display: flex; gap: 10px; align-items: center; }
+            .search-bar input { padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; width: 260px; font-size: 13px; }
             .pagination { display: flex; justify-content: center; gap: 5px; margin-top: 20px; align-items: center; }
             .pagination button { padding: 6px 12px; border: 1px solid #cbd5e1; background: white; border-radius: 4px; cursor: pointer; font-size: 13px; }
             .pagination button.active { background: #0077FF; color: white; border-color: #0077FF; }
@@ -335,25 +336,19 @@ def dashboard():
             <div id="materials-tab" class="tab-content">
                 <div class="card">
                     <h1>원료 마스터 관리 (Raw Material Master)</h1>
-                    <p>아로마리소스 향료 원료 품목 리스트 조회, 검색, 수정 및 엑셀 일괄 업로드 관리</p>
-                </div>
-
-                <div class="card">
-                    <h2>원료 마스터 엑셀 일괄 업로드</h2>
-                    <p style="margin-top: 5px; color: #64748b;">신규 엑셀 파일을 업로드하면 데이터가 즉시 갱신/추가됩니다.</p>
-                    <form onsubmit="uploadExcel(event)" style="margin-top: 15px; display: flex; gap: 10px; align-items: center;">
-                        <input type="file" id="excelFile" accept=".xlsx, .xls" required style="padding: 6px; border: 1px solid #cbd5e1; border-radius: 6px; background: #fff;">
-                        <button type="submit" class="btn-order">엑셀 파일 업로드 실행</button>
-                    </form>
+                    <p>아로마리소스 향료 원료 품목 리스트 조회, 검색, 수정 및 신규 등록 관리</p>
                 </div>
 
                 <div class="card">
                     <h2>품목등록 리스트 (데이터베이스 연동)</h2>
                     
                     <div class="search-bar" style="margin-top: 15px;">
-                        <input type="text" id="searchInput" placeholder="원료코드, 원료명, CAS No, 공급사 검색..." onkeyup="if(event.key==='Enter') searchMaterials()">
-                        <button type="button" class="btn-action" onclick="searchMaterials()" style="padding: 8px 14px;">검색</button>
-                        <button type="button" class="btn-delete" onclick="resetSearch()" style="padding: 8px 14px; background:#64748b;">초기화</button>
+                        <div class="search-left">
+                            <input type="text" id="searchInput" placeholder="원료코드, 원료명, CAS No, 공급사 검색..." onkeyup="if(event.key==='Enter') searchMaterials()">
+                            <button type="button" class="btn-action" onclick="searchMaterials()" style="padding: 8px 14px;">검색</button>
+                            <button type="button" class="btn-delete" onclick="resetSearch()" style="padding: 8px 14px; background:#64748b;">초기화</button>
+                        </div>
+                        <button type="button" class="btn-order" onclick="openCreateModal()">신규 원료 등록</button>
                     </div>
 
                     <table>
@@ -378,6 +373,28 @@ def dashboard():
                 </div>
             </div>
         </main>
+
+        <!-- 신규 원료 등록 팝업 모달 -->
+        <div id="createModal" class="modal-overlay">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <span>신규 원료 등록</span>
+                    <span class="modal-close" onclick="closeCreateModal()">&times;</span>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group"><label>원료코드 *</label><input type="text" id="new_code" placeholder="예: 1-999"></div>
+                    <div class="form-group"><label>원료명(국문) *</label><input type="text" id="new_name_kr" placeholder="국문 원료명 입력"></div>
+                    <div class="form-group"><label>원료명(영문)</label><input type="text" id="new_name_en" placeholder="영문 원료명 입력"></div>
+                    <div class="form-group"><label>CAS No.</label><input type="text" id="new_cas" placeholder="예: 0000-00-0"></div>
+                    <div class="form-group"><label>공급사</label><input type="text" id="new_supplier" placeholder="공급사 또는 구매처 입력"></div>
+                    <div class="form-group"><label>관리단위</label><input type="text" id="new_unit" value="Kg"></div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn-action" onclick="saveNewMaterial()" style="background:#0077FF; padding: 8px 16px;">등록 저장</button>
+                    <button class="btn-delete" onclick="closeCreateModal()" style="padding: 8px 16px; background:#64748b;">닫기</button>
+                </div>
+            </div>
+        </div>
 
         <!-- 원료 수정 팝업 모달 -->
         <div id="editModal" class="modal-overlay">
@@ -457,6 +474,52 @@ def dashboard():
                 })
                 .catch(err => {
                     document.getElementById('materialTableBody').innerHTML = '<tr><td colspan="8" style="text-align: center; color: red;">데이터 로드 실패</td></tr>';
+                });
+            }
+
+            function openCreateModal() {
+                document.getElementById('new_code').value = '';
+                document.getElementById('new_name_kr').value = '';
+                document.getElementById('new_name_en').value = '';
+                document.getElementById('new_cas').value = '';
+                document.getElementById('new_supplier').value = '';
+                document.getElementById('new_unit').value = 'Kg';
+                document.getElementById('createModal').style.display = 'flex';
+            }
+
+            function closeCreateModal() {
+                document.getElementById('createModal').style.display = 'none';
+            }
+
+            function saveNewMaterial() {
+                const payload = {
+                    material_code: document.getElementById('new_code').value.trim(),
+                    material_name_kr: document.getElementById('new_name_kr').value.trim(),
+                    material_name_en: document.getElementById('new_name_en').value.trim(),
+                    cas_no: document.getElementById('new_cas').value.trim(),
+                    supplier: document.getElementById('new_supplier').value.trim(),
+                    unit: document.getElementById('new_unit').value.trim() || 'Kg',
+                    category: ""
+                };
+                if (!payload.material_code || !payload.material_name_kr) {
+                    alert("원료코드와 국문 원료명은 필수 입력 항목입니다.");
+                    return;
+                }
+
+                fetch('/api/v1/materials', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.status === "SUCCESS") {
+                        alert("신규 원료가 등록되었습니다.");
+                        closeCreateModal();
+                        loadMaterials(1);
+                    } else {
+                        alert("등록 실패: " + (data.detail || "중복된 코드일 수 있습니다."));
+                    }
                 });
             }
 
@@ -562,32 +625,6 @@ def dashboard():
                 });
             }
 
-            function uploadExcel(event) {
-                event.preventDefault();
-                const fileInput = document.getElementById('excelFile');
-                if (fileInput.files.length === 0) {
-                    alert("업로드할 엑셀 파일을 선택해 주세요.");
-                    return;
-                }
-                const formData = new FormData();
-                formData.append("file", fileInput.files[0]);
-
-                alert("업로드를 진행합니다. 잠시만 기다려 주세요.");
-                fetch('/api/v1/materials/upload', {
-                    method: 'POST',
-                    body: formData
-                })
-                .then(res => res.json())
-                .then(resData => {
-                    if (resData.status === "SUCCESS") {
-                        alert(resData.message);
-                        loadMaterials(1);
-                    } else {
-                        alert("업로드 실패");
-                    }
-                });
-            }
-
             function loadOrders() {
                 fetch('/api/v1/orders').then(res => res.json()).then(data => {
                     const tbody = document.getElementById('orderTableBody');
@@ -684,6 +721,30 @@ def get_materials(skip: int = 0, limit: int = 30, search: str = None):
             "category": m.category
         } for m in materials]
         return {"status": "SUCCESS", "total": total, "count": len(data), "data": data}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/v1/materials")
+def create_material(data: MaterialRequest):
+    try:
+        db = SessionLocal()
+        existing = db.query(MaterialMaster).filter(MaterialMaster.material_code == data.material_code).first()
+        if existing:
+            db.close()
+            raise HTTPException(status_code=400, detail="이미 존재하는 원료코드입니다.")
+        new_m = MaterialMaster(
+            material_code=data.material_code,
+            material_name_kr=data.material_name_kr,
+            material_name_en=data.material_name_en,
+            cas_no=data.cas_no,
+            supplier=data.supplier,
+            unit=data.unit,
+            category=data.category
+        )
+        db.add(new_m)
+        db.commit()
+        db.close()
+        return {"status": "SUCCESS", "message": "신규 원료가 등록되었습니다."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -879,76 +940,5 @@ def export_csv():
         response = Response(content=output.getvalue(), media_type="text/csv")
         response.headers["Content-Disposition"] = "attachment; filename=batch_production_logs.csv"
         return response
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/api/v1/materials/upload")
-async def upload_materials(file: UploadFile = File(...)):
-    try:
-        df = pd.read_excel(file.file, header=None)
-        db = SessionLocal()
-        success_count = 0
-        
-        for idx, row in df.iterrows():
-            vals = [str(val).strip() for val in row.values]
-            if not vals or all(v == "" or v.lower() in ["nan", "none"] for v in vals):
-                continue
-            
-            row_str = " ".join(vals)
-            if any(keyword in row_str for keyword in ["회사명", "사업자", "대표", "주소", "TEL", "FAX"]):
-                continue
-            if ("코드" in row_str or "품목코드" in row_str or "원료코드" in row_str) and ("명" in row_str or "규격" in row_str):
-                continue
-            
-            material_code = vals[0] if len(vals) > 0 else ""
-            if not material_code or material_code.lower() in ["nan", "none", "", "품목코드", "원료코드", "code", "코드"] or "회사명" in material_code:
-                continue
-            
-            name_kr = vals[1] if len(vals) > 1 else ""
-            name_en = vals[2] if len(vals) > 2 else ""
-            
-            cas_no = ""
-            supplier = ""
-            unit = "Kg"
-            category = ""
-            
-            for v in vals:
-                if "-" in v and len(v) >= 7 and any(char.isdigit() for char in v) and len(v.split("-")) >= 2:
-                    parts = v.split("-")
-                    if len(parts[0]) >= 2 and len(parts[-1]) >= 1 and parts[0].isdigit():
-                        cas_no = v
-                if any(kw in v for kw in ["주식회사", "코퍼레이션", "사", "AROMA", "LLC", "주", "유한"]):
-                    if len(v) < 30 and v != name_kr:
-                        supplier = v
-
-            if name_kr.lower() in ["nan", "none"]: name_kr = ""
-            if name_en.lower() in ["nan", "none"]: name_en = ""
-            if cas_no.lower() in ["nan", "none"]: cas_no = ""
-            if supplier.lower() in ["nan", "none"]: supplier = ""
-
-            existing = db.query(MaterialMaster).filter(MaterialMaster.material_code == material_code).first()
-            if existing:
-                existing.material_name_kr = name_kr
-                existing.material_name_en = name_en
-                existing.cas_no = cas_no
-                existing.supplier = supplier
-                existing.unit = unit
-                existing.category = category
-            else:
-                new_material = MaterialMaster(
-                    material_code=material_code,
-                    material_name_kr=name_kr,
-                    material_name_en=name_en,
-                    cas_no=cas_no,
-                    supplier=supplier,
-                    unit=unit,
-                    category=category
-                )
-                db.add(new_material)
-            success_count += 1
-            
-        db.commit()
-        db.close()
-        return {"status": "SUCCESS", "message": f"총 {success_count}건의 원료 데이터가 성공적으로 적재되었습니다."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
