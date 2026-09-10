@@ -72,7 +72,7 @@ class OrderRequest(BaseModel):
     due_date: str
     remark: str = "정상"
 
-# 통합 메인 대시보드 (사이드바 + 주문/생산 + 원료 마스터 관리 UI)
+# 통합 메인 대시보드
 @app.get("/", response_class=HTMLResponse)
 def dashboard():
     return """
@@ -85,7 +85,6 @@ def dashboard():
             * { box-sizing: border-box; margin: 0; padding: 0; }
             body { display: flex; height: 100vh; overflow: hidden; background-color: #F8FAFC; font-family: 'Pretendard', -apple-system, sans-serif; }
             
-            /* 사이드바 스타일 */
             .aroma-sidebar {
               width: 260px;
               height: 100vh;
@@ -125,7 +124,6 @@ def dashboard():
               border-left: 3px solid #00A8FF; padding-left: 12px; font-weight: 600;
             }
 
-            /* 메인 콘텐츠 영역 */
             .main-content { flex: 1; padding: 30px; overflow-y: auto; }
             .tab-content { display: none; }
             .tab-content.active { display: block; }
@@ -281,7 +279,6 @@ def dashboard():
                     <p>아로마리소스 향료 원료 품목 리스트 조회 및 엑셀 일괄 업로드 관리</p>
                 </div>
 
-                <!-- 엑셀 업로드 박스 -->
                 <div class="card">
                     <h2>원료 마스터 엑셀 일괄 업로드</h2>
                     <p style="margin-top: 5px; color: #64748b;">원료코드가 포함된 엑셀 파일을 업로드하면 기존 데이터가 자동 갱신되거나 신규 등록됩니다.</p>
@@ -291,7 +288,6 @@ def dashboard():
                     </form>
                 </div>
 
-                <!-- 품목 등록 리스트 조회 테이블 -->
                 <div class="card">
                     <h2>품목등록 리스트 (데이터베이스 연동)</h2>
                     <table>
@@ -364,7 +360,7 @@ def dashboard():
                 const formData = new FormData();
                 formData.append("file", fileInput.files[0]);
 
-                alert("업로드를 진행합니다. 잠시만 기다려 주세요.");
+                alert("업로드를 진행합니다. 잠시만 기다려 주세요 (수천 건의 데이터는 몇 초 소요됩니다).");
                 fetch('/api/v1/materials/upload', {
                     method: 'POST',
                     body: formData
@@ -715,32 +711,52 @@ def export_csv():
 async def upload_materials(file: UploadFile = File(...)):
     try:
         df = pd.read_excel(file.file)
+        # 엑셀 컬럼명 공백 제거 및 유연한 매칭 처리
+        df.columns = [str(c).strip() for c in df.columns]
         db = SessionLocal()
+        success_count = 0
         for _, row in df.iterrows():
-            material_code = str(row.get("원료코드", ""))
-            if not material_code or material_code == "nan":
+            material_code = str(row.get("원료코드") or row.get("원료 코드") or row.get("Code") or "").strip()
+            if not material_code or material_code.lower() in ["nan", "none", ""]:
                 continue
+            
+            name_kr = str(row.get("원료명(국문)") or row.get("원료명 (국문)") or row.get("국문명") or "").strip()
+            name_en = str(row.get("원료명(영문)") or row.get("원료명 (영문)") or row.get("영문명") or "").strip()
+            cas_no = str(row.get("CAS 번호") or row.get("CAS번호") or row.get("CAS No") or row.get("CAS") or "").strip()
+            supplier = str(row.get("공급사") or row.get("제조사") or "").strip()
+            unit = str(row.get("관리단위") or row.get("단위") or "Kg").strip()
+            category = str(row.get("원료분류") or row.get("분류") or "").strip()
+
+            if name_kr.lower() in ["nan", "none"]: name_kr = ""
+            if name_en.lower() in ["nan", "none"]: name_en = ""
+            if cas_no.lower() in ["nan", "none"]: cas_no = ""
+            if supplier.lower() in ["nan", "none"]: supplier = ""
+            if unit.lower() in ["nan", "none"]: unit = "Kg"
+            if category.lower() in ["nan", "none"]: category = ""
+
             existing = db.query(MaterialMaster).filter(MaterialMaster.material_code == material_code).first()
             if existing:
-                existing.material_name_kr = str(row.get("원료명(국문)", ""))
-                existing.material_name_en = str(row.get("원료명(영문)", ""))
-                existing.cas_no = str(row.get("CAS 번호", ""))
-                existing.supplier = str(row.get("공급사", ""))
-                existing.unit = str(row.get("관리단위", "Kg"))
-                existing.category = str(row.get("원료분류", ""))
+                existing.material_name_kr = name_kr
+                existing.material_name_en = name_en
+                existing.cas_no = cas_no
+                existing.supplier = supplier
+                existing.unit = unit
+                existing.category = category
             else:
                 new_material = MaterialMaster(
                     material_code=material_code,
-                    material_name_kr=str(row.get("원료명(국문)", "")),
-                    material_name_en=str(row.get("원료명(영문)", "")),
-                    cas_no=str(row.get("CAS 번호", "")),
-                    supplier=str(row.get("공급사", "")),
-                    unit=str(row.get("관리단위", "Kg")),
-                    category=str(row.get("원료분류", ""))
+                    material_name_kr=name_kr,
+                    material_name_en=name_en,
+                    cas_no=cas_no,
+                    supplier=supplier,
+                    unit=unit,
+                    category=category
                 )
                 db.add(new_material)
+            success_count += 1
+            
         db.commit()
         db.close()
-        return {"status": "SUCCESS", "message": f"총 {len(df)}건의 원료 데이터가 성공적으로 적재되었습니다."}
+        return {"status": "SUCCESS", "message": f"총 {success_count}건의 원료 데이터가 성공적으로 적재되었습니다."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
