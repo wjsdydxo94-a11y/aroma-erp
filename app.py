@@ -93,7 +93,6 @@ def init_db():
         )
     ''')
     
-    # material_masters에 예계량, 재고수량, 판매수량 컬럼 추가 안전장치
     for col_def in [
         ("remark", "TEXT"),
         ("pre_weighing", "REAL DEFAULT 0"),
@@ -106,7 +105,6 @@ def init_db():
         except Exception:
             pass
 
-    # 1000으로 시작하는 코드를 KT&G상품으로 강제 일괄 업데이트 (예외 품목 제외)
     cursor.execute("UPDATE material_masters SET category = 'KT&G상품' WHERE material_code LIKE '1000%' AND material_code != '1000052941'")
     conn.commit()
     conn.close()
