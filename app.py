@@ -590,13 +590,13 @@ def dashboard():
                 <div class="modal-body">
                     <input type="hidden" id="yearly_target_id">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-                        <p style="font-size: 13px; color: #475569;">연도별 예계량 수량을 기입하고 저장하세요.</p>
+                        <p style="font-size: 13px; color: #475569;">연도별 예계량 수량을 클릭하여 기입하고 저장하세요.</p>
                         <button type="button" class="btn-action" onclick="addYearlyRow()" style="padding: 5px 10px;">+ 연도 추가</button>
                     </div>
                     <div style="max-height: 250px; overflow-y: auto;">
                         <table>
                             <thead>
-                                <tr><th>연도 (예: 2026)</th><th>예계량 (kg)</th><th>관리</th></tr>
+                                <tr><th>연도 선택</th><th>예계량 (kg)</th><th>관리</th></tr>
                             </thead>
                             <tbody id="yearlyRowsBody"></tbody>
                         </table>
@@ -908,7 +908,7 @@ def dashboard():
                 fetch(`/api/v1/materials/${id}/qtys`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ pre_weighing: m.pre_weighing, stock_qty: m.stock_qty, sales_qty: sales })
+                    body: JSON.stringify({ sales_qty: sales })
                 })
                 .then(res => res.json())
                 .then(data => {
@@ -931,7 +931,7 @@ def dashboard():
                 const yearlyData = m.yearly_pre_weighing || {};
                 const keys = Object.keys(yearlyData);
                 if (keys.length === 0) {
-                    addYearlyRow('', '');
+                    addYearlyRow('2026', '');
                 } else {
                     keys.forEach(year => {
                         addYearlyRow(year, yearlyData[year]);
@@ -944,14 +944,23 @@ def dashboard():
                 document.getElementById('yearlyPreModal').style.display = 'none';
             }
 
-            function addYearlyRow(year='', qty='') {
+            function addYearlyRow(year='2026', qty='') {
                 const tbody = document.getElementById('yearlyRowsBody');
                 const tr = document.createElement('tr');
                 tr.className = 'yearly-row';
+                
+                // 연도 선택 셀렉트박스 생성
+                const years = ['2024', '2025', '2026', '2027', '2028', '2029', '2030'];
+                let optionsHtml = '';
+                years.forEach(y => {
+                    const sel = (y === year) ? 'selected' : '';
+                    optionsHtml += `<option value="${y}" ${sel}>${y}년</option>`;
+                });
+
                 tr.innerHTML = `
-                    <td><input type="text" class="y-year" value="${year}" placeholder="예: 2026" style="width:100%; padding:4px;"></td>
-                    <td><input type="number" step="0.001" class="y-qty" value="${qty}" placeholder="수량" style="width:100%; padding:4px;"></td>
-                    <td><button type="button" class="btn-delete" onclick="this.closest('tr').remove()" style="padding:4px 8px;">삭제</button></td>
+                    <td><select class="y-year" style="width:100%; padding:6px; border:1px solid #cbd5e1; border-radius:4px;">${optionsHtml}</select></td>
+                    <td><input type="number" step="0.001" class="y-qty" value="${qty}" placeholder="수량 (kg)" style="width:100%; padding:6px; border:1px solid #cbd5e1; border-radius:4px;"></td>
+                    <td><button type="button" class="btn-delete" onclick="this.closest('tr').remove()" style="padding:5px 10px;">삭제</button></td>
                 `;
                 tbody.appendChild(tr);
             }
@@ -1011,9 +1020,9 @@ def dashboard():
                 const tr = document.createElement('tr');
                 tr.className = 'lot-row';
                 tr.innerHTML = `
-                    <td><input type="text" class="l-lot" value="${lot}" placeholder="LOT 번호 입력" style="width:100%; padding:4px;"></td>
-                    <td><input type="number" step="0.001" class="l-qty" value="${qty}" placeholder="수량" style="width:100%; padding:4px;"></td>
-                    <td><button type="button" class="btn-delete" onclick="this.closest('tr').remove()" style="padding:4px 8px;">삭제</button></td>
+                    <td><input type="text" class="l-lot" value="${lot}" placeholder="LOT 번호 입력" style="width:100%; padding:6px; border:1px solid #cbd5e1; border-radius:4px;"></td>
+                    <td><input type="number" step="0.001" class="l-qty" value="${qty}" placeholder="수량 (kg)" style="width:100%; padding:6px; border:1px solid #cbd5e1; border-radius:4px;"></td>
+                    <td><button type="button" class="btn-delete" onclick="this.closest('tr').remove()" style="padding:5px 10px;">삭제</button></td>
                 `;
                 tbody.appendChild(tr);
             }
