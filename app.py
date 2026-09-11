@@ -112,8 +112,6 @@ def auto_seed_materials():
             xls = pd.ExcelFile(file_path)
             for sheet_name in xls.sheet_names:
                 df = pd.read_excel(xls, sheet_name=sheet_name, header=None)
-                
-                # 시트 이름에 'KT&G'나 'KT&G상품'이 포함되어 있으면 기본 카테고리를 KT&G상품으로 지정
                 sheet_cat_override = None
                 if "KT&G" in sheet_name or "케이티앤지" in sheet_name:
                     sheet_cat_override = "KT&G상품"
@@ -981,7 +979,8 @@ def dashboard():
                 currentSearch = '';
                 currentCategory = '';
                 document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
-                document.getElementById('btn-cat-all').classList.add('active');
+                const allBtn = document.getElementById('btn-cat-all');
+                if (allBtn) allBtn.classList.add('active');
                 loadMaterials(1);
             }
 
@@ -1015,7 +1014,8 @@ def dashboard():
                 document.getElementById('new_supplier').value = '';
                 document.getElementById('new_category').value = '원재료';
                 document.getElementById('new_remark').value = '';
-                document.getElementById('duplicateNameSuggestions').style.display = 'none';
+                const sugg = document.getElementById('duplicateNameSuggestions');
+                if (sugg) sugg.style.display = 'none';
                 document.getElementById('createModal').style.display = 'flex';
             }
 
