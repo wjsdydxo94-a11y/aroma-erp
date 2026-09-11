@@ -3,6 +3,7 @@ import csv
 import io
 import os
 import glob
+import json
 import pandas as pd
 from fastapi import FastAPI, HTTPException, Response, File, UploadFile, Query, Form
 from fastapi.responses import HTMLResponse
@@ -97,7 +98,9 @@ def init_db():
         ("remark", "TEXT"),
         ("pre_weighing", "REAL DEFAULT 0"),
         ("stock_qty", "REAL DEFAULT 0"),
-        ("sales_qty", "REAL DEFAULT 0")
+        ("sales_qty", "REAL DEFAULT 0"),
+        ("yearly_pre_weighing", "TEXT DEFAULT '{}'"),
+        ("lot_stock", "TEXT DEFAULT '[]'")
     ]:
         try:
             cursor.execute(f"ALTER TABLE material_masters ADD COLUMN {col_def[0]} {col_def[1]};")
@@ -171,7 +174,9 @@ def auto_seed_materials():
                             remark="",
                             pre_weighing=0.0,
                             stock_qty=0.0,
-                            sales_qty=0.0
+                            sales_qty=0.0,
+                            yearly_pre_weighing="{}",
+                            lot_stock="[]"
                         )
                         db.add(new_material)
             db.commit()
@@ -317,7 +322,7 @@ def dashboard():
             .pagination button:disabled { background: #f1f5f9; color: #94a3b8; cursor: not-allowed; }
 
             .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); justify-content: center; align-items: center; z-index: 1000; }
-            .modal-content { background: white; padding: 25px; border-radius: 10px; width: 500px; max-height: 90vh; overflow-y: auto; box-shadow: 0 4px 20px rgba(0,0,0,0.2); }
+            .modal-content { background: white; padding: 25px; border-radius: 10px; width: 550px; max-height: 90vh; overflow-y: auto; box-shadow: 0 4px 20px rgba(0,0,0,0.2); }
             .modal-header { font-size: 16px; font-weight: bold; margin-bottom: 15px; border-bottom: 2px solid #cbd5e1; padding-bottom: 8px; display: flex; justify-content: space-between; align-items: center; color: #1e293b; }
             .modal-close { cursor: pointer; font-size: 18px; color: #64748b; }
             .modal-body .form-group { margin-bottom: 12px; }
@@ -492,11 +497,11 @@ def dashboard():
                 </div>
             </div>
 
-            <!-- [탭 3] KT&G 상품 품목리스트 탭 (예계량, 재고수량, 판매수량 추가) -->
+            <!-- [탭 3] KT&G 상품 품목리스트 탭 -->
             <div id="ktng-tab" class="tab-content">
                 <div class="card">
                     <h1>KT&G 상품 품목리스트</h1>
-                    <p>원료 마스터 중 <b>'KT&G상품'</b>으로 분류된 품목의 예계량, 재고수량, 판매수량을 관리합니다.</p>
+                    <p>원료 마스터 중 <b>'KT&G상품'</b>으로 분류된 품목 리스트입니다. 수치(예계량, 재고수량)를 클릭하여 연도별 또는 LOT별 상세 내역을 관리하세요.</p>
                 </div>
 
                 <div class="card">
@@ -574,6 +579,64 @@ def dashboard():
                 </div>
             </div>
         </main>
+
+        <!-- 연도별 예계량 상세 관리 모달 -->
+        <div id="yearlyPreModal" class="modal-overlay">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <span id="yearlyPreModalTitle">연도별 예계량 관리</span>
+                    <span class="modal-close" onclick="closeYearlyPreModal()">&times;</span>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" id="yearly_target_id">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                        <p style="font-size: 13px; color: #475569;">연도별 예계량 수량을 기입하고 저장하세요.</p>
+                        <button type="button" class="btn-action" onclick="addYearlyRow()" style="padding: 5px 10px;">+ 연도 추가</button>
+                    </div>
+                    <div style="max-height: 250px; overflow-y: auto;">
+                        <table>
+                            <thead>
+                                <tr><th>연도 (예: 2026)</th><th>예계량 (kg)</th><th>관리</th></tr>
+                            </thead>
+                            <tbody id="yearlyRowsBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn-order" onclick="saveYearlyPreData()">저장</button>
+                    <button type="button" class="btn-delete" onclick="closeYearlyPreModal()" style="background:#64748b;">닫기</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- LOT별 재고수량 상세 관리 모달 -->
+        <div id="lotStockModal" class="modal-overlay">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <span id="lotStockModalTitle">LOT별 재고수량 관리</span>
+                    <span class="modal-close" onclick="closeLotStockModal()">&times;</span>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" id="lot_target_id">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                        <p style="font-size: 13px; color: #475569;">LOT 번호별 재고 수량을 기입하고 저장하세요.</p>
+                        <button type="button" class="btn-action" onclick="addLotRow()" style="padding: 5px 10px;">+ LOT 추가</button>
+                    </div>
+                    <div style="max-height: 250px; overflow-y: auto;">
+                        <table>
+                            <thead>
+                                <tr><th>LOT 번호</th><th>재고수량 (kg)</th><th>관리</th></tr>
+                            </thead>
+                            <tbody id="lotRowsBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn-order" onclick="saveLotStockData()">저장</button>
+                    <button type="button" class="btn-delete" onclick="closeLotStockModal()" style="background:#64748b;">닫기</button>
+                </div>
+            </div>
+        </div>
 
         <!-- 개별 품목 BOM 등록/수정 팝업 모달 -->
         <div id="bomModal" class="modal-overlay">
@@ -699,6 +762,8 @@ def dashboard():
             let currentCategory = '';
             let currentBomSearch = '';
 
+            let currentMaterialMap = {};
+
             function switchTab(tabId) {
                 document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
                 document.getElementById(tabId).classList.add('active');
@@ -810,18 +875,23 @@ def dashboard():
                     }
 
                     data.data.forEach((row, index) => {
+                        currentMaterialMap[row.id] = row;
                         const rowNum = skip + index + 1;
+                        const preQty = row.pre_weighing || 0;
+                        const stockQty = row.stock_qty || 0;
+                        const salesQty = row.sales_qty || 0;
+
                         const tr = document.createElement('tr');
                         tr.innerHTML = `
                             <td>${rowNum}</td>
                             <td><strong>${row.material_code || ''}</strong></td>
                             <td>${row.material_name_kr || ''}</td>
                             <td>${row.material_name_en || ''}</td>
-                            <td><input type="number" step="0.001" value="${row.pre_weighing || 0}" id="pre_${row.id}" style="width:100px; padding:4px;"></td>
-                            <td><input type="number" step="0.001" value="${row.stock_qty || 0}" id="stock_${row.id}" style="width:100px; padding:4px;"></td>
-                            <td><input type="number" step="0.001" value="${row.sales_qty || 0}" id="sales_${row.id}" style="width:100px; padding:4px;"></td>
+                            <td><span class="clickable-no" onclick='openYearlyPreModal(${row.id})'>${preQty.toLocaleString(undefined, {minimumFractionDigits: 3})} kg</span></td>
+                            <td><span class="clickable-no" onclick='openLotStockModal(${row.id})'>${stockQty.toLocaleString(undefined, {minimumFractionDigits: 3})} kg</span></td>
+                            <td><input type="number" step="0.001" value="${salesQty}" id="sales_${row.id}" style="width:100px; padding:4px;" onchange="saveSalesQty(${row.id})"></td>
                             <td>
-                                <button class="btn-action" onclick="saveKtngQty(${row.id})" style="background:#0077FF; padding:5px 10px;">저장</button>
+                                <button class="btn-action" onclick='openEditModal(${JSON.stringify(row)})' style="padding:5px 8px;">상세</button>
                             </td>
                         `;
                         tbody.appendChild(tr);
@@ -830,22 +900,145 @@ def dashboard():
                 });
             }
 
-            function saveKtngQty(id) {
-                const pre = parseFloat(document.getElementById(`pre_${id}`).value) || 0;
-                const stock = parseFloat(document.getElementById(`stock_${id}`).value) || 0;
+            function saveSalesQty(id) {
                 const sales = parseFloat(document.getElementById(`sales_${id}`).value) || 0;
+                const m = currentMaterialMap[id];
+                if (!m) return;
 
                 fetch(`/api/v1/materials/${id}/qtys`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ pre_weighing: pre, stock_qty: stock, sales_qty: sales })
+                    body: JSON.stringify({ pre_weighing: m.pre_weighing, stock_qty: m.stock_qty, sales_qty: sales })
                 })
                 .then(res => res.json())
                 .then(data => {
                     if (data.status === "SUCCESS") {
-                        alert("수량 정보가 저장되었습니다.");
-                    } else {
-                        alert("저장 실패");
+                        m.sales_qty = sales;
+                    }
+                });
+            }
+
+            // 연도별 예계량 모달 열기
+            function openYearlyPreModal(id) {
+                const m = currentMaterialMap[id];
+                if (!m) return;
+                document.getElementById('yearly_target_id').value = id;
+                document.getElementById('yearlyPreModalTitle').innerText = `연도별 예계량 관리 - [${m.material_code}] ${m.material_name_kr}`;
+                
+                const tbody = document.getElementById('yearlyRowsBody');
+                tbody.innerHTML = '';
+                
+                const yearlyData = m.yearly_pre_weighing || {};
+                const keys = Object.keys(yearlyData);
+                if (keys.length === 0) {
+                    addYearlyRow('', '');
+                } else {
+                    keys.forEach(year => {
+                        addYearlyRow(year, yearlyData[year]);
+                    });
+                }
+                document.getElementById('yearlyPreModal').style.display = 'flex';
+            }
+
+            function closeYearlyPreModal() {
+                document.getElementById('yearlyPreModal').style.display = 'none';
+            }
+
+            function addYearlyRow(year='', qty='') {
+                const tbody = document.getElementById('yearlyRowsBody');
+                const tr = document.createElement('tr');
+                tr.className = 'yearly-row';
+                tr.innerHTML = `
+                    <td><input type="text" class="y-year" value="${year}" placeholder="예: 2026" style="width:100%; padding:4px;"></td>
+                    <td><input type="number" step="0.001" class="y-qty" value="${qty}" placeholder="수량" style="width:100%; padding:4px;"></td>
+                    <td><button type="button" class="btn-delete" onclick="this.closest('tr').remove()" style="padding:4px 8px;">삭제</button></td>
+                `;
+                tbody.appendChild(tr);
+            }
+
+            function saveYearlyPreData() {
+                const id = document.getElementById('yearly_target_id').value;
+                const rows = document.querySelectorAll('.yearly-row');
+                const yearlyData = {};
+                rows.forEach(r => {
+                    const yr = r.querySelector('.y-year').value.trim();
+                    const qt = parseFloat(r.querySelector('.y-qty').value) || 0;
+                    if (yr) yearlyData[yr] = qt;
+                });
+
+                fetch(`/api/v1/materials/${id}/yearly-pre`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ yearly_data: yearlyData })
+                })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.status === "SUCCESS") {
+                        alert("연도별 예계량이 저장되었습니다.");
+                        closeYearlyPreModal();
+                        loadKtngMaterials(ktngCurrentPage);
+                    }
+                });
+            }
+
+            // LOT별 재고수량 모달 열기
+            function openLotStockModal(id) {
+                const m = currentMaterialMap[id];
+                if (!m) return;
+                document.getElementById('lot_target_id').value = id;
+                document.getElementById('lotStockModalTitle').innerText = `LOT별 재고수량 관리 - [${m.material_code}] ${m.material_name_kr}`;
+                
+                const tbody = document.getElementById('lotRowsBody');
+                tbody.innerHTML = '';
+                
+                const lotData = m.lot_stock || [];
+                if (lotData.length === 0) {
+                    addLotRow('', '');
+                } else {
+                    lotData.forEach(item => {
+                        addLotRow(item.lot, item.qty);
+                    });
+                }
+                document.getElementById('lotStockModal').style.display = 'flex';
+            }
+
+            function closeLotStockModal() {
+                document.getElementById('lotStockModal').style.display = 'none';
+            }
+
+            function addLotRow(lot='', qty='') {
+                const tbody = document.getElementById('lotRowsBody');
+                const tr = document.createElement('tr');
+                tr.className = 'lot-row';
+                tr.innerHTML = `
+                    <td><input type="text" class="l-lot" value="${lot}" placeholder="LOT 번호 입력" style="width:100%; padding:4px;"></td>
+                    <td><input type="number" step="0.001" class="l-qty" value="${qty}" placeholder="수량" style="width:100%; padding:4px;"></td>
+                    <td><button type="button" class="btn-delete" onclick="this.closest('tr').remove()" style="padding:4px 8px;">삭제</button></td>
+                `;
+                tbody.appendChild(tr);
+            }
+
+            function saveLotStockData() {
+                const id = document.getElementById('lot_target_id').value;
+                const rows = document.querySelectorAll('.lot-row');
+                const lotData = [];
+                rows.forEach(r => {
+                    const lotNo = r.querySelector('.l-lot').value.trim();
+                    const qt = parseFloat(r.querySelector('.l-qty').value) || 0;
+                    if (lotNo) lotData.push({ lot: lotNo, qty: qt });
+                });
+
+                fetch(`/api/v1/materials/${id}/lot-stock`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ lot_data: lotData })
+                })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.status === "SUCCESS") {
+                        alert("LOT별 재고수량이 저장되었습니다.");
+                        closeLotStockModal();
+                        loadKtngMaterials(ktngCurrentPage);
                     }
                 });
             }
@@ -1250,6 +1443,44 @@ def dashboard():
 
 # --- API 엔드포인트 ---
 
+@app.put("/api/v1/materials/{material_id}/yearly-pre")
+def update_yearly_pre(material_id: int, data: dict):
+    try:
+        db = SessionLocal()
+        m = db.query(MaterialMaster).filter(MaterialMaster.id == material_id).first()
+        if not m:
+            db.close()
+            raise HTTPException(status_code=404, detail="원료를 찾을 수 없습니다.")
+        
+        yearly_data = data.get("yearly_data", {})
+        m.yearly_pre_weighing = json.dumps(yearly_data, ensure_ascii=False)
+        total = sum(float(v) for v in yearly_data.values() if str(v).strip() != "")
+        m.pre_weighing = total
+        db.commit()
+        db.close()
+        return {"status": "SUCCESS", "total": total}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.put("/api/v1/materials/{material_id}/lot-stock")
+def update_lot_stock(material_id: int, data: dict):
+    try:
+        db = SessionLocal()
+        m = db.query(MaterialMaster).filter(MaterialMaster.id == material_id).first()
+        if not m:
+            db.close()
+            raise HTTPException(status_code=404, detail="원료를 찾을 수 없습니다.")
+        
+        lot_data = data.get("lot_data", [])
+        m.lot_stock = json.dumps(lot_data, ensure_ascii=False)
+        total = sum(float(item.get("qty", 0)) for item in lot_data if str(item.get("qty", "")).strip() != "")
+        m.stock_qty = total
+        db.commit()
+        db.close()
+        return {"status": "SUCCESS", "total": total}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.put("/api/v1/materials/{material_id}/qtys")
 def update_material_qtys(material_id: int, data: dict):
     try:
@@ -1259,8 +1490,6 @@ def update_material_qtys(material_id: int, data: dict):
             db.close()
             raise HTTPException(status_code=404, detail="원료를 찾을 수 없습니다.")
         
-        m.pre_weighing = float(data.get("pre_weighing", 0))
-        m.stock_qty = float(data.get("stock_qty", 0))
         m.sales_qty = float(data.get("sales_qty", 0))
         db.commit()
         db.close()
@@ -1385,20 +1614,33 @@ def get_materials(skip: int = 0, limit: int = 30, search: str = None, category: 
         materials = query.offset(skip).limit(limit).all()
         db.close()
         
-        data = [{
-            "id": m.id,
-            "material_code": m.material_code,
-            "material_name_kr": m.material_name_kr,
-            "material_name_en": m.material_name_en,
-            "cas_no": m.cas_no,
-            "supplier": m.supplier,
-            "category": m.category or "원재료",
-            "remark": m.remark or "",
-            "pre_weighing": getattr(m, 'pre_weighing', 0.0) or 0.0,
-            "stock_qty": getattr(m, 'stock_qty', 0.0) or 0.0,
-            "sales_qty": getattr(m, 'sales_qty', 0.0) or 0.0,
-            "unit": m.unit
-        } for m in materials]
+        data = []
+        for m in materials:
+            try:
+                yearly_dict = json.loads(m.yearly_pre_weighing) if m.yearly_pre_weighing else {}
+            except:
+                yearly_dict = {}
+            try:
+                lot_list = json.loads(m.lot_stock) if m.lot_stock else []
+            except:
+                lot_list = []
+
+            data.append({
+                "id": m.id,
+                "material_code": m.material_code,
+                "material_name_kr": m.material_name_kr,
+                "material_name_en": m.material_name_en,
+                "cas_no": m.cas_no,
+                "supplier": m.supplier,
+                "category": m.category or "원재료",
+                "remark": m.remark or "",
+                "pre_weighing": getattr(m, 'pre_weighing', 0.0) or 0.0,
+                "stock_qty": getattr(m, 'stock_qty', 0.0) or 0.0,
+                "sales_qty": getattr(m, 'sales_qty', 0.0) or 0.0,
+                "yearly_pre_weighing": yearly_dict,
+                "lot_stock": lot_list,
+                "unit": m.unit
+            })
         return {"status": "SUCCESS", "total": total, "count": len(data), "data": data}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
