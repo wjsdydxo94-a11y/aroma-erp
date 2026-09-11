@@ -22,3 +22,5 @@ class MaterialMaster(Base):
     pre_weighing = Column(Float, default=0.0)
     stock_qty = Column(Float, default=0.0)
     sales_qty = Column(Float, default=0.0)
+    yearly_pre_weighing = Column(String, default="{}")
+    lot_stock = Column(String, default="[]")
