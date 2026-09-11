@@ -20,3 +20,6 @@ class MaterialMaster(Base):
     unit = Column(String)
     category = Column(String)
     remark = Column(String, default="")
+    pre_weighing = Column(Float, default=0.0)
+    stock_qty = Column(Float, default=0.0)
+    sales_qty = Column(Float, default=0.0)
