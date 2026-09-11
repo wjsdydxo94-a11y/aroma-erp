@@ -2,6 +2,7 @@ import sqlite3
 import csv
 import io
 import os
+import glob
 import pandas as pd
 from fastapi import FastAPI, HTTPException, Response, File, UploadFile, Query, Form
 from fastapi.responses import HTMLResponse
@@ -76,7 +77,6 @@ def init_db():
             FOREIGN KEY (bom_id) REFERENCES bom_headers (bom_id)
         )
     ''')
-    # material_masters 테이블에 remark 컬럼 추가 안전장치
     try:
         cursor.execute("ALTER TABLE material_masters ADD COLUMN remark TEXT;")
         conn.commit()
@@ -93,10 +93,20 @@ def auto_seed_materials():
     db = SessionLocal()
     count = db.query(MaterialMaster).count()
     if count == 0:
-        file_path = "아로마리소스 원료 리스트.xlsx"
-        if os.path.exists(file_path):
+        # 서버 환경의 한글 파일명 인코딩 문제 방지를 위해 .xlsx 파일을 동적 탐색
+        excel_files = glob.glob("*.xlsx")
+        file_path = None
+        for f in excel_files:
+            if "원료" in f or "material" in f.lower():
+                file_path = f
+                break
+        if not file_path and excel_files:
+            file_path = excel_files[0]
+
+        if file_path and os.path.exists(file_path):
             try:
                 df = pd.read_excel(file_path, header=None)
+                success_count = 0
                 for idx, row in df.iterrows():
                     vals = [str(val).strip() for val in row.values]
                     if not vals or all(v == "" or v.lower() in ["nan", "none"] for v in vals):
@@ -148,7 +158,9 @@ def auto_seed_materials():
                         remark=""
                     )
                     db.add(new_material)
+                    success_count += 1
                 db.commit()
+                print(f"[Auto-Seed] 총 {success_count}건의 원료 데이터가 자동으로 적재되었습니다.")
             except Exception as e:
                 print(f"[Auto-Seed Error] {e}")
     db.close()
@@ -157,11 +169,9 @@ def bulk_update_categories():
     db = SessionLocal()
     try:
         materials = db.query(MaterialMaster).all()
-        updated_count = 0
         for m in materials:
             code = str(m.material_code).strip()
             new_cat = m.category or "원재료"
-            
             if code.startswith("AR-"):
                 new_cat = "제품"
             elif code.startswith("1-") or code.startswith("2-") or code.startswith("3-"):
@@ -171,7 +181,6 @@ def bulk_update_categories():
             
             if m.category != new_cat:
                 m.category = new_cat
-                updated_count += 1
         db.commit()
     except Exception as e:
         print(f"[Bulk Update Error] {e}")
