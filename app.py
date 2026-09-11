@@ -175,8 +175,7 @@ def bulk_update_categories():
         materials = db.query(MaterialMaster).all()
         for m in materials:
             code = str(m.material_code).strip()
-            # 이미 '상품' 등으로 수동 설정된 품목이 아니라면 기본 규칙 적용
-            if m.category == "상품":
+            if m.category == "상품" or m.category == "KT&G상품":
                 continue
             new_cat = get_auto_category(code)
             if m.category != new_cat:
@@ -432,7 +431,7 @@ def dashboard():
             <div id="materials-tab" class="tab-content">
                 <div class="card">
                     <h1>원료 마스터 관리 (Raw Material Master)</h1>
-                    <p>아로마리소스 향료 원료 품목 리스트 조회, 검색, 수정 및 신규 등록 관리 (구분: 원재료/제품/반제품/상품/KT&G상품 등)</p>
+                    <p>아로마리소스 향료 원료 품목 리스트 조회, 검색, 수정 및 신규 등록 관리 (구분: 원재료/제품/반제품/상품)</p>
                 </div>
 
                 <div class="card">
@@ -480,7 +479,7 @@ def dashboard():
                 </div>
             </div>
 
-            <!-- [탭 3] KT&G 상품 품목리스트 탭 (신규 추가) -->
+            <!-- [탭 3] KT&G 상품 품목리스트 탭 (연동 완료) -->
             <div id="ktng-tab" class="tab-content">
                 <div class="card">
                     <h1>KT&G 상품 품목리스트</h1>
@@ -703,8 +702,8 @@ def dashboard():
             function filterByCategory(cat) {
                 currentCategory = cat;
                 document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
-                const btnId = cat === '' ? 'btn-cat-all' : `btn-cat-${cat.replace('&', '\\&')}`;
-                const targetBtn = document.getElementById(btnId.replace('\\', ''));
+                const btnId = cat === '' ? 'btn-cat-all' : `btn-cat-${cat}`;
+                const targetBtn = document.getElementById(btnId);
                 if (targetBtn) targetBtn.classList.add('active');
                 loadMaterials(1);
             }
