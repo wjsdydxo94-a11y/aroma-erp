@@ -93,7 +93,6 @@ def auto_seed_materials():
     db = SessionLocal()
     count = db.query(MaterialMaster).count()
     if count == 0:
-        # 서버 환경의 한글 파일명 인코딩 문제 방지를 위해 .xlsx 파일을 동적 탐색
         excel_files = glob.glob("*.xlsx")
         file_path = None
         for f in excel_files:
@@ -154,9 +153,10 @@ def auto_seed_materials():
                         cas_no=cas_no,
                         supplier=supplier,
                         unit="Kg",
-                        category=cat,
-                        remark=""
+                        category=cat
                     )
+                    if hasattr(new_material, 'remark'):
+                        new_material.remark = ""
                     db.add(new_material)
                     success_count += 1
                 db.commit()
