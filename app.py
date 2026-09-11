@@ -13,6 +13,17 @@ from database import engine, Base, SessionLocal, MaterialMaster
 Base.metadata.create_all(bind=engine)
 app = FastAPI()
 
+def get_auto_category(code: str) -> str:
+    code = str(code).strip()
+    if code.startswith("AR-"):
+        return "제품"
+    elif code.startswith("CB-"):
+        return "반제품"
+    elif "-M" in code or "-P" in code:
+        return "반제품"
+    else:
+        return "원재료"
+
 def init_db():
     conn = sqlite3.connect('erp_factory.db')
     cursor = conn.cursor()
@@ -87,6 +98,7 @@ def init_db():
     conn.close()
     
     auto_seed_materials()
+    bulk_update_categories()
 
 def auto_seed_materials():
     db = SessionLocal()
@@ -137,13 +149,7 @@ def auto_seed_materials():
                     if cas_no.lower() in ["nan", "none"]: cas_no = ""
                     if supplier.lower() in ["nan", "none"]: supplier = ""
 
-                    cat = "원재료"
-                    if material_code.startswith("AR-"):
-                        cat = "제품"
-                    elif material_code.startswith("1-") or material_code.startswith("2-") or material_code.startswith("3-"):
-                        cat = "원재료"
-                    elif material_code.startswith("CB-"):
-                        cat = "반제품"
+                    cat = get_auto_category(material_code)
 
                     new_material = MaterialMaster(
                         material_code=material_code,
@@ -159,10 +165,24 @@ def auto_seed_materials():
                     db.add(new_material)
                     success_count += 1
                 db.commit()
-                print(f"[Auto-Seed] 총 {success_count}건의 원료 데이터가 자동으로 적재되었습니다.")
             except Exception as e:
                 print(f"[Auto-Seed Error] {e}")
     db.close()
+
+def bulk_update_categories():
+    db = SessionLocal()
+    try:
+        materials = db.query(MaterialMaster).all()
+        for m in materials:
+            code = str(m.material_code).strip()
+            new_cat = get_auto_category(code)
+            if m.category != new_cat:
+                m.category = new_cat
+        db.commit()
+    except Exception as e:
+        print(f"[Bulk Update Error] {e}")
+    finally:
+        db.close()
 
 init_db()
 
@@ -1121,10 +1141,7 @@ def save_bom(data: BomSaveRequest):
             m_code = item.get('material_code')
             if m_code:
                 existing = db_mat.query(MaterialMaster).filter(MaterialMaster.material_code == m_code).first()
-                cat = "원재료"
-                if m_code.startswith("AR-"): cat = "제품"
-                elif m_code.startswith("1-") or m_code.startswith("2-") or m_code.startswith("3-"): cat = "원재료"
-                elif m_code.startswith("CB-"): cat = "반제품"
+                cat = get_auto_category(m_code)
 
                 if not existing:
                     new_m = MaterialMaster(
@@ -1196,7 +1213,7 @@ def create_material(data: MaterialRequest):
             material_name_en=data.material_name_en,
             cas_no=data.cas_no,
             supplier=data.supplier,
-            category=data.category,  # 사용자가 선택한 원료 구분 그대로 저장
+            category=data.category,
             unit=data.unit,
             remark=data.remark
         )
@@ -1232,7 +1249,7 @@ def update_material(material_id: int, data: MaterialRequest):
         m.material_name_en = data.material_name_en
         m.cas_no = data.cas_no
         m.supplier = data.supplier
-        m.category = data.category  # 사용자가 선택한 원료 구분 그대로 반영
+        m.category = data.category
         m.unit = data.unit
         m.remark = data.remark
         db.commit()
