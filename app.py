@@ -160,7 +160,6 @@ def auto_seed_materials():
                     db.add(new_material)
                     success_count += 1
                 db.commit()
-                print(f"[Auto-Seed] 총 {success_count}건의 원료 데이터가 자동으로 적재되었습니다.")
             except Exception as e:
                 print(f"[Auto-Seed Error] {e}")
     db.close()
@@ -472,7 +471,7 @@ def dashboard():
             <div id="bom-tab" class="tab-content">
                 <div class="card">
                     <h1>BOM(소요량) 조회 및 관리</h1>
-                    <p>품목코드를 클릭하면 개별 품목의 처방(BOM)을 등록하거나 수정할 수 있습니다.</p>
+                    <p>품목코드를 클릭하거나 [BOM 등록/수정] 버튼을 눌러 개별 품목의 처방을 관리하세요.</p>
                 </div>
 
                 <div class="card">
@@ -548,7 +547,7 @@ def dashboard():
             </div>
         </div>
 
-        <!-- 신규 원료 등록 팝업 모달 -->
+        <!-- 신규 원료 등록 팝업 모달 (자동완성 및 중복 선택 지원) -->
         <div id="createModal" class="modal-overlay">
             <div class="modal-content">
                 <div class="modal-header">
@@ -556,8 +555,20 @@ def dashboard():
                     <span class="modal-close" onclick="closeCreateModal()">&times;</span>
                 </div>
                 <div class="modal-body">
-                    <div class="form-group"><label>원료코드 *</label><input type="text" id="new_code" placeholder="예: 1-999 또는 AR-001"></div>
-                    <div class="form-group"><label>원료명(국문) *</label><input type="text" id="new_name_kr" placeholder="국문 원료명 입력"></div>
+                    <div class="form-group">
+                        <label>원료코드 *</label>
+                        <input type="text" id="new_code" placeholder="예: 1-999 또는 AR-001" oninput="onMaterialCodeInput(this.value)">
+                    </div>
+                    <div class="form-group">
+                        <label>원료명(국문) *</label>
+                        <input type="text" id="new_name_kr" placeholder="국문 원료명 입력">
+                        <!-- 중복 또는 유사 원료명 선택용 컨테이너 -->
+                        <div id="duplicateNameSuggestions" style="margin-top: 5px; display: none;">
+                            <select id="suggestedNamesSelect" style="width:100%; padding:6px; border:1px solid #0077FF; border-radius:4px; background:#eff6ff;" onchange="selectSuggestedName(this.value)">
+                                <option value="">-- 일치하거나 유사한 원료명 선택 --</option>
+                            </select>
+                        </div>
+                    </div>
                     <div class="form-group"><label>원료명(영문)</label><input type="text" id="new_name_en" placeholder="영문 원료명 입력"></div>
                     <div class="form-group"><label>CAS No.</label><input type="text" id="new_cas" placeholder="예: 0000-00-0"></div>
                     <div class="form-group"><label>공급사</label><input type="text" id="new_supplier" placeholder="공급사 입력"></div>
@@ -873,6 +884,7 @@ def dashboard():
                 document.getElementById('new_supplier').value = '';
                 document.getElementById('new_category').value = '원재료';
                 document.getElementById('new_remark').value = '';
+                document.getElementById('duplicateNameSuggestions').style.display = 'none';
                 document.getElementById('createModal').style.display = 'flex';
             }
 
@@ -880,11 +892,57 @@ def dashboard():
                 document.getElementById('createModal').style.display = 'none';
             }
 
+            // 원료코드 입력 시 서버에서 일치하거나 유사한 품목을 조회하여 자동완성 및 중복 선택 지원
+            function onMaterialCodeInput(codeVal) {
+                const code = codeVal.trim();
+                if (code.length < 2) return;
+
+                fetch(`/api/v1/materials/lookup?code=${encodeURIComponent(code)}`)
+                .then(res => res.json())
+                .then(data => {
+                    if (data.status === "SUCCESS" && data.matches && data.matches.length > 0) {
+                        const matches = data.matches;
+                        if (matches.length === 1) {
+                            // 정확히 일치하거나 매칭되는 원료가 1개인 경우 자동 입력
+                            document.getElementById('new_name_kr').value = matches[0].material_name_kr || '';
+                            document.getElementById('new_name_en').value = matches[0].material_name_en || '';
+                            document.getElementById('new_cas').value = matches[0].cas_no || '';
+                            document.getElementById('new_supplier').value = matches[0].supplier || '';
+                            document.getElementById('new_category').value = matches[0].category || '원재료';
+                            document.getElementById('duplicateNameSuggestions').style.display = 'none';
+                        } else {
+                            // 중복 또는 유사한 원료명이 여러 개 있는 경우 선택박스 제공
+                            const select = document.getElementById('suggestedNamesSelect');
+                            select.innerHTML = '<option value="">-- 일치하는 원료 선택 (중복 항목) --</option>';
+                            matches.forEach(m => {
+                                const opt = document.createElement('option');
+                                opt.value = JSON.stringify(m);
+                                opt.innerText = `[${m.material_code}] ${m.material_name_kr} (공급사: ${m.supplier || '미정'})`;
+                                select.appendChild(opt);
+                            });
+                            document.getElementById('duplicateNameSuggestions').style.display = 'block';
+                        }
+                    }
+                });
+            }
+
+            function selectSuggestedName(valStr) {
+                if (!valStr) return;
+                const m = JSON.parse(valStr);
+                document.getElementById('new_code').value = m.material_code || '';
+                document.getElementById('new_name_kr').value = m.material_name_kr || '';
+                document.getElementById('new_name_en').value = m.material_name_en || '';
+                document.getElementById('new_cas').value = m.cas_no || '';
+                document.getElementById('new_supplier').value = m.supplier || '';
+                document.getElementById('new_category').value = m.category || '원재료';
+                document.getElementById('duplicateNameSuggestions').style.display = 'none';
+            }
+
             function saveNewMaterial() {
                 const code = document.getElementById('new_code').value.trim();
                 let category = document.getElementById('new_category').value;
                 if (code.startsWith("AR-")) category = "제품";
-                else if (code.startsWith("1-") || code.startsWith("2-") || code.startsWith("3-")) category = "원재료";
+                else if (code.startsWith("1-") || code.startsWith("2-") || code.startswith("3-")) category = "원재료";
                 else if (code.startsWith("CB-")) category = "반제품";
 
                 const payload = {
@@ -1021,7 +1079,31 @@ def dashboard():
     </html>
     """
 
-# --- BOM 및 원료 마스터 API 엔드포인트 ---
+# --- API 엔드포인트 ---
+
+@app.get("/api/v1/materials/lookup")
+def lookup_material(code: str):
+    try:
+        db = SessionLocal()
+        # 코드가 정확히 일치하거나 유사한 항목 검색
+        matches = db.query(MaterialMaster).filter(
+            (MaterialMaster.material_code == code) | 
+            (MaterialMaster.material_code.like(f"%{code}%"))
+        ).limit(10).all()
+        db.close()
+        
+        data = [{
+            "material_code": m.material_code,
+            "material_name_kr": m.material_name_kr,
+            "material_name_en": m.material_name_en,
+            "cas_no": m.cas_no,
+            "supplier": m.supplier,
+            "category": m.category,
+            "remark": m.remark
+        } for m in matches]
+        return {"status": "SUCCESS", "matches": data}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/v1/boms")
 def get_bom(product_code: str, version: str = "1"):
