@@ -215,6 +215,9 @@ class MaterialRequest(BaseModel):
     category: str = "원재료"
     remark: str = ""
 
+class BatchDeleteRequest(BaseModel):
+    ids: List[int]
+
 class BomSaveRequest(BaseModel):
     product_code: str
     product_name: str
@@ -278,7 +281,7 @@ def dashboard():
             .btn-submit { background: #2563eb; color: white; border: none; padding: 8px 16px; font-weight: 600; border-radius: 6px; cursor: pointer; font-size: 13px; }
             .btn-order { background: #0077FF; color: white; border: none; padding: 8px 16px; font-weight: 600; border-radius: 6px; cursor: pointer; font-size: 13px; }
             .btn-action { background: #0284c7; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; font-size: 11px; }
-            .btn-delete { background: #ef4444; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; font-size: 11px; }
+            .btn-delete { background: #ef4444; color: white; border: none; padding: 8px 16px; font-weight: 600; border-radius: 6px; cursor: pointer; font-size: 13px; }
             .btn-export { background: #10b981; color: white; border: none; padding: 8px 16px; font-weight: 600; border-radius: 6px; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; font-size: 13px; }
             
             table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 13px; }
@@ -436,12 +439,16 @@ def dashboard():
                             <button type="button" class="btn-action" onclick="searchMaterials()" style="padding: 8px 14px;">검색</button>
                             <button type="button" class="btn-delete" onclick="resetSearch()" style="padding: 8px 14px; background:#64748b;">초기화</button>
                         </div>
-                        <button type="button" class="btn-order" onclick="openCreateModal()">신규 원료 등록</button>
+                        <div style="display: flex; gap: 10px;">
+                            <button type="button" class="btn-delete" onclick="deleteSelectedMaterials()">선택 삭제</button>
+                            <button type="button" class="btn-order" onclick="openCreateModal()">신규 원료 등록</button>
+                        </div>
                     </div>
 
                     <table>
                         <thead>
                             <tr>
+                                <th style="width: 40px;"><input type="checkbox" id="selectAll" onclick="toggleSelectAll(this)"></th>
                                 <th style="width: 60px;">순번</th>
                                 <th>원료코드</th>
                                 <th>원료명(국문)</th>
@@ -450,7 +457,6 @@ def dashboard():
                                 <th>공급사</th>
                                 <th>원료구분</th>
                                 <th>적요/비고</th>
-                                <th>관리</th>
                             </tr>
                         </thead>
                         <tbody id="materialTableBody">
@@ -466,7 +472,7 @@ def dashboard():
             <div id="bom-tab" class="tab-content">
                 <div class="card">
                     <h1>BOM(소요량) 조회 및 관리</h1>
-                    <p>품목코드를 클릭하거나 [BOM 등록/수정] 버튼을 눌러 개별 품목의 처방을 관리하세요.</p>
+                    <p>품목코드를 클릭하면 개별 품목의 처방(BOM)을 등록하거나 수정할 수 있습니다.</p>
                 </div>
 
                 <div class="card">
@@ -622,6 +628,36 @@ def dashboard():
                 }
             }
 
+            function toggleSelectAll(source) {
+                const checkboxes = document.querySelectorAll('.row-checkbox');
+                checkboxes.forEach(cb => cb.checked = source.checked);
+            }
+
+            function deleteSelectedMaterials() {
+                const selectedIds = Array.from(document.querySelectorAll('.row-checkbox:checked'))
+                                         .map(cb => parseInt(cb.value));
+                if (selectedIds.length === 0) {
+                    alert("삭제할 항목을 체크박스로 하나 이상 선택해 주세요.");
+                    return;
+                }
+                if (!confirm(`선택한 ${selectedIds.length}개의 원료 데이터를 정말 삭제하시겠습니까?`)) return;
+
+                fetch('/api/v1/materials/delete-batch', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ids: selectedIds })
+                })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.status === "SUCCESS") {
+                        alert(data.message);
+                        loadMaterials(currentPage);
+                    } else {
+                        alert("삭제 실패");
+                    }
+                });
+            }
+
             function loadMaterials(page) {
                 currentPage = page;
                 const skip = (page - 1) * pageSize;
@@ -633,6 +669,7 @@ def dashboard():
                 .then(data => {
                     const tbody = document.getElementById('materialTableBody');
                     tbody.innerHTML = '';
+                    document.getElementById('selectAll').checked = false;
                     if (!data.data || data.data.length === 0) {
                         tbody.innerHTML = '<tr><td colspan="9" style="text-align: center;">등록된 원료 데이터가 없습니다.</td></tr>';
                         document.getElementById('paginationContainer').innerHTML = '';
@@ -643,6 +680,7 @@ def dashboard():
                         const rowNum = skip + index + 1;
                         const tr = document.createElement('tr');
                         tr.innerHTML = `
+                            <td><input type="checkbox" class="row-checkbox" value="${row.id}"></td>
                             <td>${rowNum}</td>
                             <td><span class="clickable-no" onclick='openEditModal(${JSON.stringify(row)})'>${row.material_code || ''}</span></td>
                             <td><span class="clickable-no" onclick='openEditModal(${JSON.stringify(row)})'>${row.material_name_kr || ''}</span></td>
@@ -651,10 +689,6 @@ def dashboard():
                             <td>${row.supplier || ''}</td>
                             <td><span class="badge" style="background:#475569;">${row.category || '원재료'}</span></td>
                             <td>${row.remark || ''}</td>
-                            <td>
-                                <button class="btn-action" onclick='openEditModal(${JSON.stringify(row)})'>상세/수정</button>
-                                <button class="btn-delete" onclick="deleteMaterial(${row.id})">삭제</button>
-                            </td>
                         `;
                         tbody.appendChild(tr);
                     });
@@ -901,7 +935,7 @@ def dashboard():
                 const code = document.getElementById('edit_code').value.trim();
                 let category = document.getElementById('edit_category').value;
                 if (code.startsWith("AR-")) category = "제품";
-                else if (code.startsWith("1-") || code.startswith("2-") || code.startswith("3-")) category = "원재료";
+                else if (code.startsWith("1-") || code.startsWith("2-") || code.startsWith("3-")) category = "원재료";
                 else if (code.startsWith("CB-")) category = "반제품";
 
                 const payload = {
@@ -924,18 +958,6 @@ def dashboard():
                     if (data.status === "SUCCESS") {
                         alert("수정되었습니다.");
                         closeEditModal();
-                        loadMaterials(currentPage);
-                    }
-                });
-            }
-
-            function deleteMaterial(id) {
-                if (!confirm("정말 이 원료 데이터를 삭제하시겠습니까?")) return;
-                fetch(`/api/v1/materials/${id}`, { method: 'DELETE' })
-                .then(res => res.json())
-                .then(data => {
-                    if (data.status === "SUCCESS") {
-                        alert("삭제되었습니다.");
                         loadMaterials(currentPage);
                     }
                 });
@@ -999,7 +1021,7 @@ def dashboard():
     </html>
     """
 
-# --- BOM API 엔드포인트 ---
+# --- BOM 및 원료 마스터 API 엔드포인트 ---
 
 @app.get("/api/v1/boms")
 def get_bom(product_code: str, version: str = "1"):
@@ -1138,6 +1160,17 @@ def create_material(data: MaterialRequest):
         db.commit()
         db.close()
         return {"status": "SUCCESS", "message": "신규 원료가 등록되었습니다."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/v1/materials/delete-batch")
+def delete_batch_materials(data: BatchDeleteRequest):
+    try:
+        db = SessionLocal()
+        db.query(MaterialMaster).filter(MaterialMaster.id.in_(data.ids)).delete(synchronize_session=False)
+        db.commit()
+        db.close()
+        return {"status": "SUCCESS", "message": f"선택한 {len(data.ids)}건의 원료가 삭제되었습니다."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
