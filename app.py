@@ -175,6 +175,9 @@ def bulk_update_categories():
         materials = db.query(MaterialMaster).all()
         for m in materials:
             code = str(m.material_code).strip()
+            # 이미 '상품' 등으로 수동 설정된 품목이 아니라면 기본 규칙 적용
+            if m.category == "상품":
+                continue
             new_cat = get_auto_category(code)
             if m.category != new_cat:
                 m.category = new_cat
@@ -333,9 +336,11 @@ def dashboard():
               <summary>판매 관리</summary>
               <ul><li><a onclick="switchTab('orders-tab')">판매 조회 및 입력</a></li></ul>
             </details>
-            <details>
+            <details open>
               <summary>입고 / 구매</summary>
-              <ul><li><a onclick="switchTab('orders-tab')">발주 및 입고 관리</a></li></ul>
+              <ul>
+                <li><a onclick="switchTab('ktng-tab')">KT&G 상품 품목리스트</a></li>
+              </ul>
             </details>
             <details open>
               <summary>원료 마스터 관리</summary>
@@ -427,7 +432,7 @@ def dashboard():
             <div id="materials-tab" class="tab-content">
                 <div class="card">
                     <h1>원료 마스터 관리 (Raw Material Master)</h1>
-                    <p>아로마리소스 향료 원료 품목 리스트 조회, 검색, 수정 및 신규 등록 관리 (구분: 원재료/제품/반제품/상품)</p>
+                    <p>아로마리소스 향료 원료 품목 리스트 조회, 검색, 수정 및 신규 등록 관리 (구분: 원재료/제품/반제품/상품/KT&G상품 등)</p>
                 </div>
 
                 <div class="card">
@@ -444,6 +449,7 @@ def dashboard():
                             <button type="button" class="filter-btn" id="btn-cat-제품" onclick="filterByCategory('제품')">제품</button>
                             <button type="button" class="filter-btn" id="btn-cat-반제품" onclick="filterByCategory('반제품')">반제품</button>
                             <button type="button" class="filter-btn" id="btn-cat-상품" onclick="filterByCategory('상품')">상품</button>
+                            <button type="button" class="filter-btn" id="btn-cat-KT&G상품" onclick="filterByCategory('KT&G상품')">KT&G상품</button>
                         </div>
                         <div style="display: flex; gap: 10px;">
                             <button type="button" class="btn-delete" onclick="deleteSelectedMaterials()">선택 삭제</button>
@@ -474,7 +480,49 @@ def dashboard():
                 </div>
             </div>
 
-            <!-- [탭 3] BOM 조회 및 관리 탭 -->
+            <!-- [탭 3] KT&G 상품 품목리스트 탭 (신규 추가) -->
+            <div id="ktng-tab" class="tab-content">
+                <div class="card">
+                    <h1>KT&G 상품 품목리스트</h1>
+                    <p>원료 마스터 중 <b>'KT&G상품'</b>으로 분류된 품목 리스트를 연동하여 관리합니다.</p>
+                </div>
+
+                <div class="card">
+                    <h2>KT&G 연동 품목 리스트</h2>
+                    
+                    <div class="search-bar" style="margin-top: 15px;">
+                        <div class="search-left">
+                            <input type="text" id="ktngSearchInput" placeholder="품목코드 또는 품목명 검색..." onkeyup="if(event.key==='Enter') searchKtngMaterials()">
+                            <button type="button" class="btn-action" onclick="searchKtngMaterials()" style="padding: 8px 14px;">검색</button>
+                            <button type="button" class="btn-delete" onclick="resetKtngSearch()" style="padding: 8px 14px; background:#64748b;">초기화</button>
+                        </div>
+                        <button type="button" class="btn-order" onclick="openCreateModalForKtng()">KT&G 상품 신규 등록</button>
+                    </div>
+
+                    <table>
+                        <thead>
+                            <tr>
+                                <th style="width: 60px;">순번</th>
+                                <th>원료코드</th>
+                                <th>원료명(국문)</th>
+                                <th>제조사</th>
+                                <th>CAS No.</th>
+                                <th>공급사</th>
+                                <th>원료구분</th>
+                                <th>적요/비고</th>
+                                <th>관리</th>
+                            </tr>
+                        </thead>
+                        <tbody id="ktngMaterialTableBody">
+                            <tr><td colspan="9" style="text-align: center;">데이터를 불러오는 중...</td></tr>
+                        </tbody>
+                    </table>
+
+                    <div class="pagination" id="ktngPaginationContainer"></div>
+                </div>
+            </div>
+
+            <!-- [탭 4] BOM 조회 및 관리 탭 -->
             <div id="bom-tab" class="tab-content">
                 <div class="card">
                     <h1>BOM(소요량) 조회 및 관리</h1>
@@ -585,6 +633,7 @@ def dashboard():
                             <option value="제품">제품</option>
                             <option value="반제품">반제품</option>
                             <option value="상품">상품</option>
+                            <option value="KT&G상품">KT&G상품</option>
                         </select>
                     </div>
                     <div class="form-group"><label>적요 / 비고</label><input type="text" id="new_remark" placeholder="비고 및 담당자 멘트 입력"></div>
@@ -617,6 +666,7 @@ def dashboard():
                             <option value="제품">제품</option>
                             <option value="반제품">반제품</option>
                             <option value="상품">상품</option>
+                            <option value="KT&G상품">KT&G상품</option>
                         </select>
                     </div>
                     <div class="form-group"><label>적요 / 비고</label><input type="text" id="edit_remark" placeholder="비고 및 담당자 멘트 입력"></div>
@@ -630,9 +680,11 @@ def dashboard():
 
         <script>
             let currentPage = 1;
+            let ktngCurrentPage = 1;
             let bomCurrentPage = 1;
             const pageSize = 30;
             let currentSearch = '';
+            let currentKtngSearch = '';
             let currentCategory = '';
             let currentBomSearch = '';
 
@@ -641,6 +693,8 @@ def dashboard():
                 document.getElementById(tabId).classList.add('active');
                 if (tabId === 'materials-tab') {
                     loadMaterials(1);
+                } else if (tabId === 'ktng-tab') {
+                    loadKtngMaterials(1);
                 } else if (tabId === 'bom-tab') {
                     loadBomMaterials(1);
                 }
@@ -649,8 +703,8 @@ def dashboard():
             function filterByCategory(cat) {
                 currentCategory = cat;
                 document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
-                const btnId = cat === '' ? 'btn-cat-all' : `btn-cat-${cat}`;
-                const targetBtn = document.getElementById(btnId);
+                const btnId = cat === '' ? 'btn-cat-all' : `btn-cat-${cat.replace('&', '\\&')}`;
+                const targetBtn = document.getElementById(btnId.replace('\\', ''));
                 if (targetBtn) targetBtn.classList.add('active');
                 loadMaterials(1);
             }
@@ -679,6 +733,7 @@ def dashboard():
                     if (data.status === "SUCCESS") {
                         alert(data.message);
                         loadMaterials(currentPage);
+                        loadKtngMaterials(ktngCurrentPage);
                     } else {
                         alert("삭제 실패");
                     }
@@ -723,6 +778,46 @@ def dashboard():
                         tbody.appendChild(tr);
                     });
                     renderPagination(data.total, 'paginationContainer', loadMaterials, currentPage);
+                });
+            }
+
+            function loadKtngMaterials(page) {
+                ktngCurrentPage = page;
+                const skip = (page - 1) * pageSize;
+                let url = `/api/v1/materials?skip=${skip}&limit=${pageSize}&category=KT&G상품`;
+                if (currentKtngSearch) url += `&search=${encodeURIComponent(currentKtngSearch)}`;
+
+                fetch(url)
+                .then(res => res.json())
+                .then(data => {
+                    const tbody = document.getElementById('ktngMaterialTableBody');
+                    tbody.innerHTML = '';
+                    if (!data.data || data.data.length === 0) {
+                        tbody.innerHTML = '<tr><td colspan="9" style="text-align: center;">등록된 KT&G 상품 품목이 없습니다.</td></tr>';
+                        document.getElementById('ktngPaginationContainer').innerHTML = '';
+                        return;
+                    }
+
+                    data.data.forEach((row, index) => {
+                        const rowNum = skip + index + 1;
+                        const tr = document.createElement('tr');
+                        tr.innerHTML = `
+                            <td>${rowNum}</td>
+                            <td><span class="clickable-no" onclick='openEditModal(${JSON.stringify(row)})'>${row.material_code || ''}</span></td>
+                            <td><span class="clickable-no" onclick='openEditModal(${JSON.stringify(row)})'>${row.material_name_kr || ''}</span></td>
+                            <td>${row.material_name_en || ''}</td>
+                            <td>${row.cas_no || ''}</td>
+                            <td>${row.supplier || ''}</td>
+                            <td><span class="badge" style="background:#0077FF;">${row.category}</span></td>
+                            <td>${row.remark || ''}</td>
+                            <td>
+                                <button class="btn-action" onclick='openEditModal(${JSON.stringify(row)})'>상세/수정</button>
+                                <button class="btn-delete" onclick="deleteMaterial(${row.id}, 'ktng')">삭제</button>
+                            </td>
+                        `;
+                        tbody.appendChild(tr);
+                    });
+                    renderPagination(data.total, 'ktngPaginationContainer', loadKtngMaterials, ktngCurrentPage);
                 });
             }
 
@@ -887,6 +982,17 @@ def dashboard():
                 loadMaterials(1);
             }
 
+            function searchKtngMaterials() {
+                currentKtngSearch = document.getElementById('ktngSearchInput').value.trim();
+                loadKtngMaterials(1);
+            }
+
+            function resetKtngSearch() {
+                document.getElementById('ktngSearchInput').value = '';
+                currentKtngSearch = '';
+                loadKtngMaterials(1);
+            }
+
             function searchBomMaterials() {
                 currentBomSearch = document.getElementById('bomSearchInput').value.trim();
                 loadBomMaterials(1);
@@ -908,6 +1014,11 @@ def dashboard():
                 document.getElementById('new_remark').value = '';
                 document.getElementById('duplicateNameSuggestions').style.display = 'none';
                 document.getElementById('createModal').style.display = 'flex';
+            }
+
+            function openCreateModalForKtng() {
+                openCreateModal();
+                document.getElementById('new_category').value = 'KT&G상품';
             }
 
             function closeCreateModal() {
@@ -982,6 +1093,7 @@ def dashboard():
                         alert("신규 원료가 등록되었습니다.");
                         closeCreateModal();
                         loadMaterials(1);
+                        loadKtngMaterials(1);
                     } else {
                         alert("등록 실패: " + (data.detail || "중복된 코드일 수 있습니다."));
                     }
@@ -1030,6 +1142,20 @@ def dashboard():
                         alert("수정되었습니다.");
                         closeEditModal();
                         loadMaterials(currentPage);
+                        loadKtngMaterials(ktngCurrentPage);
+                    }
+                });
+            }
+
+            function deleteMaterial(id, type) {
+                if (!confirm("정말 이 원료 데이터를 삭제하시겠습니까?")) return;
+                fetch(`/api/v1/materials/${id}`, { method: 'DELETE' })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.status === "SUCCESS") {
+                        alert("삭제되었습니다.");
+                        loadMaterials(currentPage);
+                        if (type === 'ktng') loadKtngMaterials(ktngCurrentPage);
                     }
                 });
             }
@@ -1086,7 +1212,7 @@ def dashboard():
                 });
             }
 
-            loadOrders(); loadWorkOrders(); loadLogs();
+            loadOrders(); loadWorkOrders(); loadLogs(); loadKtngMaterials(1);
         </script>
     </body>
     </html>
