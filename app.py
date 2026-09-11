@@ -92,11 +92,19 @@ def init_db():
             FOREIGN KEY (bom_id) REFERENCES bom_headers (bom_id)
         )
     ''')
-    try:
-        cursor.execute("ALTER TABLE material_masters ADD COLUMN remark TEXT;")
-        conn.commit()
-    except Exception:
-        pass
+    
+    # material_masters에 예계량, 재고수량, 판매수량 컬럼 추가 안전장치
+    for col_def in [
+        ("remark", "TEXT"),
+        ("pre_weighing", "REAL DEFAULT 0"),
+        ("stock_qty", "REAL DEFAULT 0"),
+        ("sales_qty", "REAL DEFAULT 0")
+    ]:
+        try:
+            cursor.execute(f"ALTER TABLE material_masters ADD COLUMN {col_def[0]} {col_def[1]};")
+            conn.commit()
+        except Exception:
+            pass
 
     # 1000으로 시작하는 코드를 KT&G상품으로 강제 일괄 업데이트 (예외 품목 제외)
     cursor.execute("UPDATE material_masters SET category = 'KT&G상품' WHERE material_code LIKE '1000%' AND material_code != '1000052941'")
@@ -162,7 +170,10 @@ def auto_seed_materials():
                             supplier=supplier,
                             unit="Kg",
                             category=cat,
-                            remark=""
+                            remark="",
+                            pre_weighing=0.0,
+                            stock_qty=0.0,
+                            sales_qty=0.0
                         )
                         db.add(new_material)
             db.commit()
@@ -176,6 +187,8 @@ def bulk_update_categories():
         materials = db.query(MaterialMaster).all()
         for m in materials:
             code = str(m.material_code).strip()
+            if m.category == "상품" or m.category == "KT&G상품":
+                continue
             new_cat = get_auto_category(code)
             if m.category != new_cat:
                 m.category = new_cat
@@ -212,6 +225,9 @@ class MaterialRequest(BaseModel):
     unit: str = "Kg"
     category: str = "원재료"
     remark: str = ""
+    pre_weighing: float = 0.0
+    stock_qty: float = 0.0
+    sales_qty: float = 0.0
 
 class BatchDeleteRequest(BaseModel):
     ids: List[int]
@@ -478,11 +494,11 @@ def dashboard():
                 </div>
             </div>
 
-            <!-- [탭 3] KT&G 상품 품목리스트 탭 (연동 완료) -->
+            <!-- [탭 3] KT&G 상품 품목리스트 탭 (예계량, 재고수량, 판매수량 추가) -->
             <div id="ktng-tab" class="tab-content">
                 <div class="card">
                     <h1>KT&G 상품 품목리스트</h1>
-                    <p>원료 마스터 중 <b>'KT&G상품'</b>으로 분류된 품목 리스트를 연동하여 관리합니다.</p>
+                    <p>원료 마스터 중 <b>'KT&G상품'</b>으로 분류된 품목의 예계량, 재고수량, 판매수량을 관리합니다.</p>
                 </div>
 
                 <div class="card">
@@ -504,15 +520,14 @@ def dashboard():
                                 <th>원료코드</th>
                                 <th>원료명(국문)</th>
                                 <th>제조사</th>
-                                <th>CAS No.</th>
-                                <th>공급사</th>
-                                <th>원료구분</th>
-                                <th>적요/비고</th>
+                                <th>예계량 (kg)</th>
+                                <th>재고수량 (kg)</th>
+                                <th>판매수량 (kg)</th>
                                 <th>관리</th>
                             </tr>
                         </thead>
                         <tbody id="ktngMaterialTableBody">
-                            <tr><td colspan="9" style="text-align: center;">데이터를 불러오는 중...</td></tr>
+                            <tr><td colspan="8" style="text-align: center;">데이터를 불러오는 중...</td></tr>
                         </tbody>
                     </table>
 
@@ -791,7 +806,7 @@ def dashboard():
                     const tbody = document.getElementById('ktngMaterialTableBody');
                     tbody.innerHTML = '';
                     if (!data.data || data.data.length === 0) {
-                        tbody.innerHTML = '<tr><td colspan="9" style="text-align: center;">등록된 KT&G 상품 품목이 없습니다.</td></tr>';
+                        tbody.innerHTML = '<tr><td colspan="8" style="text-align: center;">등록된 KT&G 상품 품목이 없습니다.</td></tr>';
                         document.getElementById('ktngPaginationContainer').innerHTML = '';
                         return;
                     }
@@ -801,21 +816,39 @@ def dashboard():
                         const tr = document.createElement('tr');
                         tr.innerHTML = `
                             <td>${rowNum}</td>
-                            <td><span class="clickable-no" onclick='openEditModal(${JSON.stringify(row)})'>${row.material_code || ''}</span></td>
-                            <td><span class="clickable-no" onclick='openEditModal(${JSON.stringify(row)})'>${row.material_name_kr || ''}</span></td>
+                            <td><strong>${row.material_code || ''}</strong></td>
+                            <td>${row.material_name_kr || ''}</td>
                             <td>${row.material_name_en || ''}</td>
-                            <td>${row.cas_no || ''}</td>
-                            <td>${row.supplier || ''}</td>
-                            <td><span class="badge" style="background:#0077FF;">${row.category}</span></td>
-                            <td>${row.remark || ''}</td>
+                            <td><input type="number" step="0.001" value="${row.pre_weighing || 0}" id="pre_${row.id}" style="width:100px; padding:4px;"></td>
+                            <td><input type="number" step="0.001" value="${row.stock_qty || 0}" id="stock_${row.id}" style="width:100px; padding:4px;"></td>
+                            <td><input type="number" step="0.001" value="${row.sales_qty || 0}" id="sales_${row.id}" style="width:100px; padding:4px;"></td>
                             <td>
-                                <button class="btn-action" onclick='openEditModal(${JSON.stringify(row)})'>상세/수정</button>
-                                <button class="btn-delete" onclick="deleteMaterial(${row.id}, 'ktng')">삭제</button>
+                                <button class="btn-action" onclick="saveKtngQty(${row.id})" style="background:#0077FF; padding:5px 10px;">저장</button>
                             </td>
                         `;
                         tbody.appendChild(tr);
                     });
                     renderPagination(data.total, 'ktngPaginationContainer', loadKtngMaterials, ktngCurrentPage);
+                });
+            }
+
+            function saveKtngQty(id) {
+                const pre = parseFloat(document.getElementById(`pre_${id}`).value) || 0;
+                const stock = parseFloat(document.getElementById(`stock_${id}`).value) || 0;
+                const sales = parseFloat(document.getElementById(`sales_${id}`).value) || 0;
+
+                fetch(`/api/v1/materials/${id}/qtys`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ pre_weighing: pre, stock_qty: stock, sales_qty: sales })
+                })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.status === "SUCCESS") {
+                        alert("수량 정보가 저장되었습니다.");
+                    } else {
+                        alert("저장 실패");
+                    }
                 });
             }
 
@@ -1219,6 +1252,24 @@ def dashboard():
 
 # --- API 엔드포인트 ---
 
+@app.put("/api/v1/materials/{material_id}/qtys")
+def update_material_qtys(material_id: int, data: dict):
+    try:
+        db = SessionLocal()
+        m = db.query(MaterialMaster).filter(MaterialMaster.id == material_id).first()
+        if not m:
+            db.close()
+            raise HTTPException(status_code=404, detail="원료를 찾을 수 없습니다.")
+        
+        m.pre_weighing = float(data.get("pre_weighing", 0))
+        m.stock_qty = float(data.get("stock_qty", 0))
+        m.sales_qty = float(data.get("sales_qty", 0))
+        db.commit()
+        db.close()
+        return {"status": "SUCCESS", "message": "수량이 업데이트되었습니다."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/api/v1/materials/lookup")
 def lookup_material(code: str):
     try:
@@ -1345,6 +1396,9 @@ def get_materials(skip: int = 0, limit: int = 30, search: str = None, category: 
             "supplier": m.supplier,
             "category": m.category or "원재료",
             "remark": m.remark or "",
+            "pre_weighing": getattr(m, 'pre_weighing', 0.0) or 0.0,
+            "stock_qty": getattr(m, 'stock_qty', 0.0) or 0.0,
+            "sales_qty": getattr(m, 'sales_qty', 0.0) or 0.0,
             "unit": m.unit
         } for m in materials]
         return {"status": "SUCCESS", "total": total, "count": len(data), "data": data}
@@ -1368,7 +1422,10 @@ def create_material(data: MaterialRequest):
             supplier=data.supplier,
             category=data.category,
             unit=data.unit,
-            remark=data.remark
+            remark=data.remark,
+            pre_weighing=data.pre_weighing,
+            stock_qty=data.stock_qty,
+            sales_qty=data.sales_qty
         )
         db.add(new_m)
         db.commit()
