@@ -15,7 +15,11 @@ app = FastAPI()
 
 def get_auto_category(code: str) -> str:
     code = str(code).strip()
-    if code.startswith("AR-"):
+    if code == "1000052941":
+        return "제품"
+    elif code.startswith("1000"):
+        return "KT&G상품"
+    elif code.startswith("AR-"):
         return "제품"
     elif code.startswith("CB-"):
         return "반제품"
@@ -175,8 +179,6 @@ def bulk_update_categories():
         materials = db.query(MaterialMaster).all()
         for m in materials:
             code = str(m.material_code).strip()
-            if m.category == "상품" or m.category == "KT&G상품":
-                continue
             new_cat = get_auto_category(code)
             if m.category != new_cat:
                 m.category = new_cat
@@ -431,7 +433,7 @@ def dashboard():
             <div id="materials-tab" class="tab-content">
                 <div class="card">
                     <h1>원료 마스터 관리 (Raw Material Master)</h1>
-                    <p>아로마리소스 향료 원료 품목 리스트 조회, 검색, 수정 및 신규 등록 관리 (구분: 원재료/제품/반제품/상품)</p>
+                    <p>아로마리소스 향료 원료 품목 리스트 조회, 검색, 수정 및 신규 등록 관리 (구분: 원재료/제품/반제품/상품/KT&G상품 등)</p>
                 </div>
 
                 <div class="card">
