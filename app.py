@@ -98,6 +98,8 @@ def init_db():
     except Exception:
         pass
 
+    # 1000으로 시작하는 코드를 KT&G상품으로 강제 일괄 업데이트 (예외 품목 제외)
+    cursor.execute("UPDATE material_masters SET category = 'KT&G상품' WHERE material_code LIKE '1000%' AND material_code != '1000052941'")
     conn.commit()
     conn.close()
     
@@ -163,9 +165,6 @@ def auto_seed_materials():
                             remark=""
                         )
                         db.add(new_material)
-                    else:
-                        if sheet_cat_override and existing.category != "KT&G상품":
-                            existing.category = "KT&G상품"
             db.commit()
         except Exception as e:
             print(f"[Auto-Seed Error for {file_path}] {e}")
@@ -177,8 +176,6 @@ def bulk_update_categories():
         materials = db.query(MaterialMaster).all()
         for m in materials:
             code = str(m.material_code).strip()
-            if m.category == "상품" or m.category == "KT&G상품":
-                continue
             new_cat = get_auto_category(code)
             if m.category != new_cat:
                 m.category = new_cat
@@ -785,7 +782,7 @@ def dashboard():
             function loadKtngMaterials(page) {
                 ktngCurrentPage = page;
                 const skip = (page - 1) * pageSize;
-                let url = `/api/v1/materials?skip=${skip}&limit=${pageSize}&category=KT&G상품`;
+                let url = `/api/v1/materials?skip=${skip}&limit=${pageSize}&category=${encodeURIComponent('KT&G상품')}`;
                 if (currentKtngSearch) url += `&search=${encodeURIComponent(currentKtngSearch)}`;
 
                 fetch(url)
@@ -1014,8 +1011,7 @@ def dashboard():
                 document.getElementById('new_supplier').value = '';
                 document.getElementById('new_category').value = '원재료';
                 document.getElementById('new_remark').value = '';
-                const sugg = document.getElementById('duplicateNameSuggestions');
-                if (sugg) sugg.style.display = 'none';
+                document.getElementById('duplicateNameSuggestions').style.display = 'none';
                 document.getElementById('createModal').style.display = 'flex';
             }
 
