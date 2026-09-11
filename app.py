@@ -76,6 +76,13 @@ def init_db():
             FOREIGN KEY (bom_id) REFERENCES bom_headers (bom_id)
         )
     ''')
+    # material_masters 테이블에 remark 컬럼 추가 안전장치
+    try:
+        cursor.execute("ALTER TABLE material_masters ADD COLUMN remark TEXT;")
+        conn.commit()
+    except Exception:
+        pass
+
     conn.commit()
     conn.close()
     
@@ -122,7 +129,6 @@ def auto_seed_materials():
                     if cas_no.lower() in ["nan", "none"]: cas_no = ""
                     if supplier.lower() in ["nan", "none"]: supplier = ""
 
-                    # 규칙에 따른 초기 구분 지정
                     cat = "원재료"
                     if material_code.startswith("AR-"):
                         cat = "제품"
@@ -138,7 +144,8 @@ def auto_seed_materials():
                         cas_no=cas_no,
                         supplier=supplier,
                         unit="Kg",
-                        category=cat
+                        category=cat,
+                        remark=""
                     )
                     db.add(new_material)
                 db.commit()
@@ -147,7 +154,6 @@ def auto_seed_materials():
     db.close()
 
 def bulk_update_categories():
-    """기존 등록된 모든 원료 데이터를 코드 규칙에 따라 일괄 재분류"""
     db = SessionLocal()
     try:
         materials = db.query(MaterialMaster).all()
@@ -167,7 +173,6 @@ def bulk_update_categories():
                 m.category = new_cat
                 updated_count += 1
         db.commit()
-        print(f"[Bulk Category Update] 총 {updated_count}건의 원료 구분이 자동으로 일괄 분류되었습니다.")
     except Exception as e:
         print(f"[Bulk Update Error] {e}")
     finally:
@@ -199,6 +204,7 @@ class MaterialRequest(BaseModel):
     supplier: str
     unit: str = "Kg"
     category: str = "원재료"
+    remark: str = ""
 
 class BomSaveRequest(BaseModel):
     product_code: str
@@ -434,7 +440,7 @@ def dashboard():
                                 <th>CAS No.</th>
                                 <th>공급사</th>
                                 <th>원료구분</th>
-                                <th>관리단위</th>
+                                <th>적요/비고</th>
                                 <th>관리</th>
                             </tr>
                         </thead>
@@ -470,12 +476,12 @@ def dashboard():
                             <tr>
                                 <th style="width: 60px;">순번</th>
                                 <th>품목코드</th>
-                                <th>품목명(국문)</th>
+                                <th>원료명(국문)</th>
                                 <th>원료명(영문)</th>
                                 <th>CAS No.</th>
                                 <th>공급사</th>
                                 <th>원료구분</th>
-                                <th>관리단위</th>
+                                <th>적요/비고</th>
                                 <th>관리</th>
                             </tr>
                         </thead>
@@ -549,7 +555,7 @@ def dashboard():
                             <option value="상품">상품</option>
                         </select>
                     </div>
-                    <div class="form-group"><label>관리단위</label><input type="text" id="new_unit" value="Kg"></div>
+                    <div class="form-group"><label>적요 / 비고</label><input type="text" id="new_remark" placeholder="비고 및 담당자 멘트 입력"></div>
                 </div>
                 <div class="modal-footer">
                     <button class="btn-action" onclick="saveNewMaterial()" style="background:#0077FF; padding: 8px 16px;">등록 저장</button>
@@ -581,7 +587,7 @@ def dashboard():
                             <option value="상품">상품</option>
                         </select>
                     </div>
-                    <div class="form-group"><label>관리단위</label><input type="text" id="edit_unit"></div>
+                    <div class="form-group"><label>적요 / 비고</label><input type="text" id="edit_remark" placeholder="비고 및 담당자 멘트 입력"></div>
                 </div>
                 <div class="modal-footer">
                     <button class="btn-action" onclick="saveModalEdit()" style="background:#0077FF; padding: 8px 16px;">수정 저장</button>
@@ -635,7 +641,7 @@ def dashboard():
                             <td>${row.cas_no || ''}</td>
                             <td>${row.supplier || ''}</td>
                             <td><span class="badge" style="background:#475569;">${row.category || '원재료'}</span></td>
-                            <td>${row.unit || 'Kg'}</td>
+                            <td>${row.remark || ''}</td>
                             <td>
                                 <button class="btn-action" onclick='openEditModal(${JSON.stringify(row)})'>상세/수정</button>
                                 <button class="btn-delete" onclick="deleteMaterial(${row.id})">삭제</button>
@@ -675,7 +681,7 @@ def dashboard():
                             <td>${row.cas_no || ''}</td>
                             <td>${row.supplier || ''}</td>
                             <td><span class="badge" style="background:#475569;">${row.category || '원재료'}</span></td>
-                            <td>${row.unit || 'Kg'}</td>
+                            <td>${row.remark || ''}</td>
                             <td>
                                 <button class="btn-action" onclick="openBomModal('${row.material_code}', '${row.material_name_kr}')" style="background:#0077FF;">BOM 등록/수정</button>
                             </td>
@@ -823,7 +829,7 @@ def dashboard():
                 document.getElementById('new_cas').value = '';
                 document.getElementById('new_supplier').value = '';
                 document.getElementById('new_category').value = '원재료';
-                document.getElementById('new_unit').value = 'Kg';
+                document.getElementById('new_remark').value = '';
                 document.getElementById('createModal').style.display = 'flex';
             }
 
@@ -834,7 +840,6 @@ def dashboard():
             function saveNewMaterial() {
                 const code = document.getElementById('new_code').value.trim();
                 let category = document.getElementById('new_category').value;
-                // 코드 규칙에 따른 자동 보정
                 if (code.startsWith("AR-")) category = "제품";
                 else if (code.startsWith("1-") || code.startsWith("2-") || code.startsWith("3-")) category = "원재료";
                 else if (code.startsWith("CB-")) category = "반제품";
@@ -846,7 +851,8 @@ def dashboard():
                     cas_no: document.getElementById('new_cas').value.trim(),
                     supplier: document.getElementById('new_supplier').value.trim(),
                     category: category,
-                    unit: document.getElementById('new_unit').value.trim() || 'Kg'
+                    unit: 'Kg',
+                    remark: document.getElementById('new_remark').value.trim()
                 };
                 fetch('/api/v1/materials', {
                     method: 'POST',
@@ -873,7 +879,7 @@ def dashboard():
                 document.getElementById('edit_cas').value = row.cas_no || '';
                 document.getElementById('edit_supplier').value = row.supplier || '';
                 document.getElementById('edit_category').value = row.category || '원재료';
-                document.getElementById('edit_unit').value = row.unit || 'Kg';
+                document.getElementById('edit_remark').value = row.remark || '';
                 document.getElementById('editModal').style.display = 'flex';
             }
 
@@ -886,7 +892,7 @@ def dashboard():
                 const code = document.getElementById('edit_code').value.trim();
                 let category = document.getElementById('edit_category').value;
                 if (code.startsWith("AR-")) category = "제품";
-                else if (code.startsWith("1-") || code.startsWith("2-") || code.startsWith("3-")) category = "원재료";
+                else if (code.startsWith("1-") || code.startswith("2-") || code.startswith("3-")) category = "원재료";
                 else if (code.startsWith("CB-")) category = "반제품";
 
                 const payload = {
@@ -896,7 +902,8 @@ def dashboard():
                     cas_no: document.getElementById('edit_cas').value,
                     supplier: document.getElementById('edit_supplier').value,
                     category: category,
-                    unit: document.getElementById('edit_unit').value
+                    unit: 'Kg',
+                    remark: document.getElementById('edit_remark').value.trim()
                 };
                 fetch(`/api/v1/materials/${id}`, {
                     method: 'PUT',
@@ -1034,7 +1041,6 @@ def save_bom(data: BomSaveRequest):
             m_code = item.get('material_code')
             if m_code:
                 existing = db_mat.query(MaterialMaster).filter(MaterialMaster.material_code == m_code).first()
-                # 원료 자동 분류 규칙 적용
                 cat = "원재료"
                 if m_code.startswith("AR-"): cat = "제품"
                 elif m_code.startswith("1-") or m_code.startswith("2-") or m_code.startswith("3-"): cat = "원재료"
@@ -1048,7 +1054,8 @@ def save_bom(data: BomSaveRequest):
                         cas_no=item.get('cas_no', ''),
                         supplier="",
                         category=cat,
-                        unit=item.get('unit', 'Kg')
+                        unit=item.get('unit', 'Kg'),
+                        remark=""
                     )
                     db_mat.add(new_m)
         db_mat.commit()
@@ -1072,7 +1079,8 @@ def get_materials(skip: int = 0, limit: int = 30, search: str = None):
                 (MaterialMaster.material_name_en.like(search_pattern)) |
                 (MaterialMaster.cas_no.like(search_pattern)) |
                 (MaterialMaster.supplier.like(search_pattern)) |
-                (MaterialMaster.category.like(search_pattern))
+                (MaterialMaster.category.like(search_pattern)) |
+                (MaterialMaster.remark.like(search_pattern))
             )
         total = query.count()
         materials = query.offset(skip).limit(limit).all()
@@ -1086,6 +1094,7 @@ def get_materials(skip: int = 0, limit: int = 30, search: str = None):
             "cas_no": m.cas_no,
             "supplier": m.supplier,
             "category": m.category or "원재료",
+            "remark": m.remark or "",
             "unit": m.unit
         } for m in materials]
         return {"status": "SUCCESS", "total": total, "count": len(data), "data": data}
@@ -1101,7 +1110,6 @@ def create_material(data: MaterialRequest):
             db.close()
             raise HTTPException(status_code=400, detail="이미 존재하는 원료코드입니다.")
         
-        # 코드 규칙 자동 보정
         cat = data.category
         if data.material_code.startswith("AR-"): cat = "제품"
         elif data.material_code.startswith("1-") or data.material_code.startswith("2-") or data.material_code.startswith("3-"): cat = "원재료"
@@ -1114,7 +1122,8 @@ def create_material(data: MaterialRequest):
             cas_no=data.cas_no,
             supplier=data.supplier,
             category=cat,
-            unit=data.unit
+            unit=data.unit,
+            remark=data.remark
         )
         db.add(new_m)
         db.commit()
@@ -1144,6 +1153,7 @@ def update_material(material_id: int, data: MaterialRequest):
         m.supplier = data.supplier
         m.category = cat
         m.unit = data.unit
+        m.remark = data.remark
         db.commit()
         db.close()
         return {"status": "SUCCESS", "message": "수정되었습니다."}
