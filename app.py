@@ -414,6 +414,13 @@ def dashboard():
 
                 <div class="card">
                     <h2>등록된 완제품 품목 리스트</h2>
+                    <div class="search-bar" style="margin-top: 15px;">
+                        <div class="search-left">
+                            <input type="text" id="bomSearchInput" placeholder="품목코드 또는 품목명 검색..." onkeyup="if(event.key==='Enter') searchBomMaster()">
+                            <button type="button" class="btn-action" onclick="searchBomMaster()" style="padding: 8px 14px;">검색</button>
+                            <button type="button" class="btn-delete" onclick="resetBomSearch()" style="padding: 8px 14px; background:#64748b;">초기화</button>
+                        </div>
+                    </div>
                     <table>
                         <thead>
                             <tr>
@@ -465,21 +472,22 @@ def dashboard():
             </div>
         </div>
 
-        <!-- 신규 BOM 엑셀 업로드 등록 모달 (자동 인식) -->
+        <!-- 신규 BOM 엑셀 업로드 등록 모달 (직접 입력 및 명확한 연동) -->
         <div id="bomCreateModal" class="modal-overlay">
             <div class="modal-content" style="width: 500px;">
                 <div class="modal-header">
-                    <span>신규 BOM 엑셀 업로드 (마스터 연동)</span>
+                    <span>신규 BOM 엑셀 등록 (마스터 연동)</span>
                     <span class="modal-close" onclick="closeBomCreateModal()">&times;</span>
                 </div>
                 <div class="modal-body">
-                    <p style="margin-bottom: 15px; color: #475569; font-size: 13px;">
-                        엑셀 파일명(예: <b>FILLER-SE1406.xlsx</b>)을 기반으로 품목코드가 자동 인식되며, 포함된 원료들은 <b>원료 마스터</b>에 자동으로 동기화 및 등록됩니다.
-                    </p>
                     <form id="bomCreateForm" onsubmit="submitBomCreateExcel(event)">
-                        <div class="form-group"><label>BOM 엑셀 파일 선택 *</label><input type="file" id="modal_excel_file" accept=".xlsx, .xls" required style="padding: 6px; border: 1px solid #cbd5e1; border-radius: 6px; background: #fff; width:100%;"></div>
+                        <div class="form-group"><label>완제품 품목코드 *</label><input type="text" id="modal_product_code" placeholder="예: 1000011096" required></div>
+                        <div class="form-group"><label>완제품 품목명/규격 *</label><input type="text" id="modal_product_name" placeholder="예: FILLER-SE1406" required></div>
+                        <div class="form-group"><label>생산공정</label><input type="text" id="modal_process_code" value="제품"></div>
+                        <div class="form-group"><label>BOM버전</label><input type="text" id="modal_bom_version" value="2"></div>
+                        <div class="form-group"><label>BOM 구성 엑셀 파일 *</label><input type="file" id="modal_excel_file" accept=".xlsx, .xls" required style="padding: 6px; border: 1px solid #cbd5e1; border-radius: 6px; background: #fff; width:100%;"></div>
                         <div class="modal-footer" style="padding: 0; margin-top: 20px;">
-                            <button type="submit" class="btn-order" style="padding: 8px 16px;">자동 인식 및 마스터 동기화 실행</button>
+                            <button type="submit" class="btn-order" style="padding: 8px 16px;">등록 및 마스터 동기화</button>
                             <button type="button" class="btn-delete" onclick="closeBomCreateModal()" style="padding: 8px 16px; background:#64748b;">닫기</button>
                         </div>
                     </form>
@@ -536,6 +544,7 @@ def dashboard():
             let currentPage = 1;
             const pageSize = 30;
             let currentSearch = '';
+            let currentBomSearch = '';
 
             function switchTab(tabId) {
                 document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
@@ -590,7 +599,11 @@ def dashboard():
             }
 
             function loadBomMasterList() {
-                fetch('/api/v1/boms/master')
+                let url = '/api/v1/boms/master';
+                if (currentBomSearch) {
+                    url += `?search=${encodeURIComponent(currentBomSearch)}`;
+                }
+                fetch(url)
                 .then(res => res.json())
                 .then(data => {
                     const tbody = document.getElementById('bomMasterTableBody');
@@ -612,6 +625,17 @@ def dashboard():
                         tbody.appendChild(tr);
                     });
                 });
+            }
+
+            function searchBomMaster() {
+                currentBomSearch = document.getElementById('bomSearchInput').value.trim();
+                loadBomMasterList();
+            }
+
+            function resetBomSearch() {
+                document.getElementById('bomSearchInput').value = '';
+                currentBomSearch = '';
+                loadBomMasterList();
             }
 
             function openBomDetailModal(productCode, version, productName) {
@@ -649,6 +673,10 @@ def dashboard():
             }
 
             function openBomCreateModal() {
+                document.getElementById('modal_product_code').value = '';
+                document.getElementById('modal_product_name').value = '';
+                document.getElementById('modal_process_code').value = '제품';
+                document.getElementById('modal_bom_version').value = '2';
                 document.getElementById('modal_excel_file').value = '';
                 document.getElementById('bomCreateModal').style.display = 'flex';
             }
@@ -666,9 +694,13 @@ def dashboard():
                     return;
                 }
                 formData.append("file", fileInput.files[0]);
+                formData.append("product_code", document.getElementById('modal_product_code').value.trim());
+                formData.append("product_name", document.getElementById('modal_product_name').value.trim());
+                formData.append("process_code", document.getElementById('modal_process_code').value.trim());
+                formData.append("bom_version", document.getElementById('modal_bom_version').value.trim());
 
-                alert("BOM 데이터를 분석하고 원료 마스터와 동기화하고 있습니다...");
-                fetch('/api/v1/boms/upload-auto', {
+                alert("BOM 데이터를 등록하고 원료 마스터와 동기화하고 있습니다...");
+                fetch('/api/v1/boms/upload-form', {
                     method: 'POST',
                     body: formData
                 })
@@ -880,12 +912,17 @@ def dashboard():
 # --- BOM API 엔드포인트 ---
 
 @app.get("/api/v1/boms/master")
-def get_bom_master():
+def get_bom_master(search: str = None):
     try:
         conn = sqlite3.connect('erp_factory.db')
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
-        cursor.execute("SELECT h.*, (SELECT COUNT(*) FROM bom_items i WHERE i.bom_id = h.bom_id) as item_count FROM bom_headers h")
+        query = "SELECT h.*, (SELECT COUNT(*) FROM bom_items i WHERE i.bom_id = h.bom_id) as item_count FROM bom_headers h WHERE 1=1"
+        params = []
+        if search:
+            query += " AND (h.product_code LIKE ? OR h.product_name LIKE ?)"
+            params.extend([f"%{search}%", f"%{search}%"])
+        cursor.execute(query, params)
         rows = cursor.fetchall()
         conn.close()
         return {"status": "SUCCESS", "data": [dict(r) for r in rows]}
@@ -914,31 +951,16 @@ def get_bom(product_code: str, version: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/api/v1/boms/upload-auto")
-async def upload_bom_auto(file: UploadFile = File(...)):
+@app.post("/api/v1/boms/upload-form")
+async def upload_bom_form(
+    file: UploadFile = File(...),
+    product_code: str = Form(...),
+    product_name: str = Form(...),
+    process_code: str = Form("제품"),
+    bom_version: str = Form("2")
+):
     try:
-        filename = file.filename
-        base_name = os.path.splitext(filename)[0]
-        
         df = pd.read_excel(file.file, header=None)
-        
-        product_code = base_name
-        product_name = base_name
-        process_code = "제품"
-        bom_version = "2"
-        
-        for idx, row in df.head(5).iterrows():
-            row_vals = [str(v).strip() for v in row.values if pd.notnull(v)]
-            row_str = " ".join(row_vals)
-            if "품목코드" in row_str or "제품코드" in row_str:
-                for v in row_vals:
-                    if v not in ["품목코드", "제품코드", ":"]:
-                        product_code = v
-            if "버전" in row_str:
-                for v in row_vals:
-                    if v.isdigit():
-                        bom_version = v
-
         conn = sqlite3.connect('erp_factory.db')
         cursor = conn.cursor()
         
@@ -984,7 +1006,7 @@ async def upload_bom_auto(file: UploadFile = File(...)):
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ''', (bom_id, item_code, item_name, qty, unit, cas_no, location, bom_version))
             
-            # 원료 마스터(MaterialMaster)와 자동 연동 (없으면 자동 등록)
+            # 원료 마스터(MaterialMaster) 자동 연동 (없으면 자동 등록)
             existing_mat = db_mat.query(MaterialMaster).filter(MaterialMaster.material_code == item_code).first()
             if not existing_mat:
                 new_m = MaterialMaster(
