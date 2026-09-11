@@ -3,7 +3,11 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import create_engine
 
-# 기존 설정 유지 및 MaterialMaster 모델에 remark 컬럼 추가
+# SQLite 데이터베이스 엔진 및 세션 설정
+engine = create_engine('sqlite:///erp_factory.db', connect_args={"check_same_thread": False})
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+Base = declarative_base()
+
 class MaterialMaster(Base):
     __tablename__ = 'material_masters'
     
@@ -15,4 +19,4 @@ class MaterialMaster(Base):
     supplier = Column(String)
     unit = Column(String)
     category = Column(String)
-    remark = Column(String, default="")  # 이 줄을 추가해 주세요
+    remark = Column(String, default="")
