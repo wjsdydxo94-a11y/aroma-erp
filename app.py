@@ -106,21 +106,18 @@ def init_db():
 
 def auto_seed_materials():
     db = SessionLocal()
-    count = db.query(MaterialMaster).count()
-    if count == 0:
-        excel_files = glob.glob("*.xlsx")
-        file_path = None
-        for f in excel_files:
-            if "원료" in f or "material" in f.lower():
-                file_path = f
-                break
-        if not file_path and excel_files:
-            file_path = excel_files[0]
+    excel_files = glob.glob("*.xlsx")
+    for file_path in excel_files:
+        try:
+            xls = pd.ExcelFile(file_path)
+            for sheet_name in xls.sheet_names:
+                df = pd.read_excel(xls, sheet_name=sheet_name, header=None)
+                
+                # 시트 이름에 'KT&G'나 'KT&G상품'이 포함되어 있으면 기본 카테고리를 KT&G상품으로 지정
+                sheet_cat_override = None
+                if "KT&G" in sheet_name or "케이티앤지" in sheet_name:
+                    sheet_cat_override = "KT&G상품"
 
-        if file_path and os.path.exists(file_path):
-            try:
-                df = pd.read_excel(file_path, header=None)
-                success_count = 0
                 for idx, row in df.iterrows():
                     vals = [str(val).strip() for val in row.values]
                     if not vals or all(v == "" or v.lower() in ["nan", "none"] for v in vals):
@@ -153,24 +150,27 @@ def auto_seed_materials():
                     if cas_no.lower() in ["nan", "none"]: cas_no = ""
                     if supplier.lower() in ["nan", "none"]: supplier = ""
 
-                    cat = get_auto_category(material_code)
+                    cat = sheet_cat_override if sheet_cat_override else get_auto_category(material_code)
 
-                    new_material = MaterialMaster(
-                        material_code=material_code,
-                        material_name_kr=name_kr,
-                        material_name_en=name_en,
-                        cas_no=cas_no,
-                        supplier=supplier,
-                        unit="Kg",
-                        category=cat
-                    )
-                    if hasattr(new_material, 'remark'):
-                        new_material.remark = ""
-                    db.add(new_material)
-                    success_count += 1
-                db.commit()
-            except Exception as e:
-                print(f"[Auto-Seed Error] {e}")
+                    existing = db.query(MaterialMaster).filter(MaterialMaster.material_code == material_code).first()
+                    if not existing:
+                        new_material = MaterialMaster(
+                            material_code=material_code,
+                            material_name_kr=name_kr,
+                            material_name_en=name_en,
+                            cas_no=cas_no,
+                            supplier=supplier,
+                            unit="Kg",
+                            category=cat,
+                            remark=""
+                        )
+                        db.add(new_material)
+                    else:
+                        if sheet_cat_override and existing.category != "KT&G상품":
+                            existing.category = "KT&G상품"
+            db.commit()
+        except Exception as e:
+            print(f"[Auto-Seed Error for {file_path}] {e}")
     db.close()
 
 def bulk_update_categories():
@@ -179,6 +179,8 @@ def bulk_update_categories():
         materials = db.query(MaterialMaster).all()
         for m in materials:
             code = str(m.material_code).strip()
+            if m.category == "상품" or m.category == "KT&G상품":
+                continue
             new_cat = get_auto_category(code)
             if m.category != new_cat:
                 m.category = new_cat
