@@ -78,7 +78,9 @@ def init_db():
     ''')
     conn.commit()
     conn.close()
+    
     auto_seed_materials()
+    bulk_update_categories()
 
 def auto_seed_materials():
     db = SessionLocal()
@@ -120,6 +122,15 @@ def auto_seed_materials():
                     if cas_no.lower() in ["nan", "none"]: cas_no = ""
                     if supplier.lower() in ["nan", "none"]: supplier = ""
 
+                    # 규칙에 따른 초기 구분 지정
+                    cat = "원재료"
+                    if material_code.startswith("AR-"):
+                        cat = "제품"
+                    elif material_code.startswith("1-") or material_code.startswith("2-") or material_code.startswith("3-"):
+                        cat = "원재료"
+                    elif material_code.startswith("CB-"):
+                        cat = "반제품"
+
                     new_material = MaterialMaster(
                         material_code=material_code,
                         material_name_kr=name_kr,
@@ -127,13 +138,40 @@ def auto_seed_materials():
                         cas_no=cas_no,
                         supplier=supplier,
                         unit="Kg",
-                        category="원재료"
+                        category=cat
                     )
                     db.add(new_material)
                 db.commit()
             except Exception as e:
                 print(f"[Auto-Seed Error] {e}")
     db.close()
+
+def bulk_update_categories():
+    """기존 등록된 모든 원료 데이터를 코드 규칙에 따라 일괄 재분류"""
+    db = SessionLocal()
+    try:
+        materials = db.query(MaterialMaster).all()
+        updated_count = 0
+        for m in materials:
+            code = str(m.material_code).strip()
+            new_cat = m.category or "원재료"
+            
+            if code.startswith("AR-"):
+                new_cat = "제품"
+            elif code.startswith("1-") or code.startswith("2-") or code.startswith("3-"):
+                new_cat = "원재료"
+            elif code.startswith("CB-"):
+                new_cat = "반제품"
+            
+            if m.category != new_cat:
+                m.category = new_cat
+                updated_count += 1
+        db.commit()
+        print(f"[Bulk Category Update] 총 {updated_count}건의 원료 구분이 자동으로 일괄 분류되었습니다.")
+    except Exception as e:
+        print(f"[Bulk Update Error] {e}")
+    finally:
+        db.close()
 
 init_db()
 
@@ -497,7 +535,7 @@ def dashboard():
                     <span class="modal-close" onclick="closeCreateModal()">&times;</span>
                 </div>
                 <div class="modal-body">
-                    <div class="form-group"><label>원료코드 *</label><input type="text" id="new_code" placeholder="예: 1-999"></div>
+                    <div class="form-group"><label>원료코드 *</label><input type="text" id="new_code" placeholder="예: 1-999 또는 AR-001"></div>
                     <div class="form-group"><label>원료명(국문) *</label><input type="text" id="new_name_kr" placeholder="국문 원료명 입력"></div>
                     <div class="form-group"><label>원료명(영문)</label><input type="text" id="new_name_en" placeholder="영문 원료명 입력"></div>
                     <div class="form-group"><label>CAS No.</label><input type="text" id="new_cas" placeholder="예: 0000-00-0"></div>
@@ -794,13 +832,20 @@ def dashboard():
             }
 
             function saveNewMaterial() {
+                const code = document.getElementById('new_code').value.trim();
+                let category = document.getElementById('new_category').value;
+                // 코드 규칙에 따른 자동 보정
+                if (code.startsWith("AR-")) category = "제품";
+                else if (code.startsWith("1-") || code.startsWith("2-") || code.startsWith("3-")) category = "원재료";
+                else if (code.startsWith("CB-")) category = "반제품";
+
                 const payload = {
-                    material_code: document.getElementById('new_code').value.trim(),
+                    material_code: code,
                     material_name_kr: document.getElementById('new_name_kr').value.trim(),
                     material_name_en: document.getElementById('new_name_en').value.trim(),
                     cas_no: document.getElementById('new_cas').value.trim(),
                     supplier: document.getElementById('new_supplier').value.trim(),
-                    category: document.getElementById('new_category').value,
+                    category: category,
                     unit: document.getElementById('new_unit').value.trim() || 'Kg'
                 };
                 fetch('/api/v1/materials', {
@@ -838,13 +883,19 @@ def dashboard():
 
             function saveModalEdit() {
                 const id = document.getElementById('edit_id').value;
+                const code = document.getElementById('edit_code').value.trim();
+                let category = document.getElementById('edit_category').value;
+                if (code.startsWith("AR-")) category = "제품";
+                else if (code.startsWith("1-") || code.startsWith("2-") || code.startsWith("3-")) category = "원재료";
+                else if (code.startsWith("CB-")) category = "반제품";
+
                 const payload = {
-                    material_code: document.getElementById('edit_code').value,
+                    material_code: code,
                     material_name_kr: document.getElementById('edit_name_kr').value,
                     material_name_en: document.getElementById('edit_name_en').value,
                     cas_no: document.getElementById('edit_cas').value,
                     supplier: document.getElementById('edit_supplier').value,
-                    category: document.getElementById('edit_category').value,
+                    category: category,
                     unit: document.getElementById('edit_unit').value
                 };
                 fetch(`/api/v1/materials/${id}`, {
@@ -983,6 +1034,12 @@ def save_bom(data: BomSaveRequest):
             m_code = item.get('material_code')
             if m_code:
                 existing = db_mat.query(MaterialMaster).filter(MaterialMaster.material_code == m_code).first()
+                # 원료 자동 분류 규칙 적용
+                cat = "원재료"
+                if m_code.startswith("AR-"): cat = "제품"
+                elif m_code.startswith("1-") or m_code.startswith("2-") or m_code.startswith("3-"): cat = "원재료"
+                elif m_code.startswith("CB-"): cat = "반제품"
+
                 if not existing:
                     new_m = MaterialMaster(
                         material_code=m_code,
@@ -990,7 +1047,7 @@ def save_bom(data: BomSaveRequest):
                         material_name_en="",
                         cas_no=item.get('cas_no', ''),
                         supplier="",
-                        category="원재료",
+                        category=cat,
                         unit=item.get('unit', 'Kg')
                     )
                     db_mat.add(new_m)
@@ -1014,7 +1071,8 @@ def get_materials(skip: int = 0, limit: int = 30, search: str = None):
                 (MaterialMaster.material_name_kr.like(search_pattern)) |
                 (MaterialMaster.material_name_en.like(search_pattern)) |
                 (MaterialMaster.cas_no.like(search_pattern)) |
-                (MaterialMaster.supplier.like(search_pattern))
+                (MaterialMaster.supplier.like(search_pattern)) |
+                (MaterialMaster.category.like(search_pattern))
             )
         total = query.count()
         materials = query.offset(skip).limit(limit).all()
@@ -1042,13 +1100,20 @@ def create_material(data: MaterialRequest):
         if existing:
             db.close()
             raise HTTPException(status_code=400, detail="이미 존재하는 원료코드입니다.")
+        
+        # 코드 규칙 자동 보정
+        cat = data.category
+        if data.material_code.startswith("AR-"): cat = "제품"
+        elif data.material_code.startswith("1-") or data.material_code.startswith("2-") or data.material_code.startswith("3-"): cat = "원재료"
+        elif data.material_code.startswith("CB-"): cat = "반제품"
+
         new_m = MaterialMaster(
             material_code=data.material_code,
             material_name_kr=data.material_name_kr,
             material_name_en=data.material_name_en,
             cas_no=data.cas_no,
             supplier=data.supplier,
-            category=data.category,
+            category=cat,
             unit=data.unit
         )
         db.add(new_m)
@@ -1066,12 +1131,18 @@ def update_material(material_id: int, data: MaterialRequest):
         if not m:
             db.close()
             raise HTTPException(status_code=404, detail="원료를 찾을 수 없습니다.")
+        
+        cat = data.category
+        if data.material_code.startswith("AR-"): cat = "제품"
+        elif data.material_code.startswith("1-") or data.material_code.startswith("2-") or data.material_code.startswith("3-"): cat = "원재료"
+        elif data.material_code.startswith("CB-"): cat = "반제품"
+
         m.material_code = data.material_code
         m.material_name_kr = data.material_name_kr
         m.material_name_en = data.material_name_en
         m.cas_no = data.cas_no
         m.supplier = data.supplier
-        m.category = data.category
+        m.category = cat
         m.unit = data.unit
         db.commit()
         db.close()
