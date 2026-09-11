@@ -87,7 +87,6 @@ def init_db():
     conn.close()
     
     auto_seed_materials()
-    bulk_update_categories()
 
 def auto_seed_materials():
     db = SessionLocal()
@@ -160,31 +159,10 @@ def auto_seed_materials():
                     db.add(new_material)
                     success_count += 1
                 db.commit()
+                print(f"[Auto-Seed] 총 {success_count}건의 원료 데이터가 자동으로 적재되었습니다.")
             except Exception as e:
                 print(f"[Auto-Seed Error] {e}")
     db.close()
-
-def bulk_update_categories():
-    db = SessionLocal()
-    try:
-        materials = db.query(MaterialMaster).all()
-        for m in materials:
-            code = str(m.material_code).strip()
-            new_cat = m.category or "원재료"
-            if code.startswith("AR-"):
-                new_cat = "제품"
-            elif code.startswith("1-") or code.startswith("2-") or code.startswith("3-"):
-                new_cat = "원재료"
-            elif code.startswith("CB-"):
-                new_cat = "반제품"
-            
-            if m.category != new_cat:
-                m.category = new_cat
-        db.commit()
-    except Exception as e:
-        print(f"[Bulk Update Error] {e}")
-    finally:
-        db.close()
 
 init_db()
 
@@ -451,7 +429,7 @@ def dashboard():
                                 <th style="width: 60px;">순번</th>
                                 <th>원료코드</th>
                                 <th>원료명(국문)</th>
-                                <th>원료명(영문)</th>
+                                <th>제조사</th>
                                 <th>CAS No.</th>
                                 <th>공급사</th>
                                 <th>원료구분</th>
@@ -491,7 +469,7 @@ def dashboard():
                                 <th style="width: 60px;">순번</th>
                                 <th>품목코드</th>
                                 <th>원료명(국문)</th>
-                                <th>원료명(영문)</th>
+                                <th>제조사</th>
                                 <th>CAS No.</th>
                                 <th>공급사</th>
                                 <th>원료구분</th>
@@ -547,7 +525,7 @@ def dashboard():
             </div>
         </div>
 
-        <!-- 신규 원료 등록 팝업 모달 (자동완성 및 중복 선택 지원) -->
+        <!-- 신규 원료 등록 팝업 모달 -->
         <div id="createModal" class="modal-overlay">
             <div class="modal-content">
                 <div class="modal-header">
@@ -562,14 +540,13 @@ def dashboard():
                     <div class="form-group">
                         <label>원료명(국문) *</label>
                         <input type="text" id="new_name_kr" placeholder="국문 원료명 입력">
-                        <!-- 중복 또는 유사 원료명 선택용 컨테이너 -->
                         <div id="duplicateNameSuggestions" style="margin-top: 5px; display: none;">
                             <select id="suggestedNamesSelect" style="width:100%; padding:6px; border:1px solid #0077FF; border-radius:4px; background:#eff6ff;" onchange="selectSuggestedName(this.value)">
                                 <option value="">-- 일치하거나 유사한 원료명 선택 --</option>
                             </select>
                         </div>
                     </div>
-                    <div class="form-group"><label>원료명(영문)</label><input type="text" id="new_name_en" placeholder="영문 원료명 입력"></div>
+                    <div class="form-group"><label>제조사</label><input type="text" id="new_name_en" placeholder="제조사 입력"></div>
                     <div class="form-group"><label>CAS No.</label><input type="text" id="new_cas" placeholder="예: 0000-00-0"></div>
                     <div class="form-group"><label>공급사</label><input type="text" id="new_supplier" placeholder="공급사 입력"></div>
                     <div class="form-group">
@@ -601,7 +578,7 @@ def dashboard():
                     <input type="hidden" id="edit_id">
                     <div class="form-group"><label>원료코드</label><input type="text" id="edit_code"></div>
                     <div class="form-group"><label>원료명(국문)</label><input type="text" id="edit_name_kr"></div>
-                    <div class="form-group"><label>원료명(영문)</label><input type="text" id="edit_name_en"></div>
+                    <div class="form-group"><label>제조사</label><input type="text" id="edit_name_en"></div>
                     <div class="form-group"><label>CAS No.</label><input type="text" id="edit_cas"></div>
                     <div class="form-group"><label>공급사</label><input type="text" id="edit_supplier"></div>
                     <div class="form-group">
@@ -892,7 +869,6 @@ def dashboard():
                 document.getElementById('createModal').style.display = 'none';
             }
 
-            // 원료코드 입력 시 서버에서 일치하거나 유사한 품목을 조회하여 자동완성 및 중복 선택 지원
             function onMaterialCodeInput(codeVal) {
                 const code = codeVal.trim();
                 if (code.length < 2) return;
@@ -903,7 +879,6 @@ def dashboard():
                     if (data.status === "SUCCESS" && data.matches && data.matches.length > 0) {
                         const matches = data.matches;
                         if (matches.length === 1) {
-                            // 정확히 일치하거나 매칭되는 원료가 1개인 경우 자동 입력
                             document.getElementById('new_name_kr').value = matches[0].material_name_kr || '';
                             document.getElementById('new_name_en').value = matches[0].material_name_en || '';
                             document.getElementById('new_cas').value = matches[0].cas_no || '';
@@ -911,7 +886,6 @@ def dashboard():
                             document.getElementById('new_category').value = matches[0].category || '원재료';
                             document.getElementById('duplicateNameSuggestions').style.display = 'none';
                         } else {
-                            // 중복 또는 유사한 원료명이 여러 개 있는 경우 선택박스 제공
                             const select = document.getElementById('suggestedNamesSelect');
                             select.innerHTML = '<option value="">-- 일치하는 원료 선택 (중복 항목) --</option>';
                             matches.forEach(m => {
@@ -940,10 +914,7 @@ def dashboard():
 
             function saveNewMaterial() {
                 const code = document.getElementById('new_code').value.trim();
-                let category = document.getElementById('new_category').value;
-                if (code.startsWith("AR-")) category = "제품";
-                else if (code.startsWith("1-") || code.startsWith("2-") || code.startswith("3-")) category = "원재료";
-                else if (code.startsWith("CB-")) category = "반제품";
+                const category = document.getElementById('new_category').value;
 
                 const payload = {
                     material_code: code,
@@ -991,10 +962,7 @@ def dashboard():
             function saveModalEdit() {
                 const id = document.getElementById('edit_id').value;
                 const code = document.getElementById('edit_code').value.trim();
-                let category = document.getElementById('edit_category').value;
-                if (code.startsWith("AR-")) category = "제품";
-                else if (code.startsWith("1-") || code.startsWith("2-") || code.startsWith("3-")) category = "원재료";
-                else if (code.startsWith("CB-")) category = "반제품";
+                const category = document.getElementById('edit_category').value;
 
                 const payload = {
                     material_code: code,
@@ -1085,7 +1053,6 @@ def dashboard():
 def lookup_material(code: str):
     try:
         db = SessionLocal()
-        # 코드가 정확히 일치하거나 유사한 항목 검색
         matches = db.query(MaterialMaster).filter(
             (MaterialMaster.material_code == code) | 
             (MaterialMaster.material_code.like(f"%{code}%"))
@@ -1223,18 +1190,13 @@ def create_material(data: MaterialRequest):
             db.close()
             raise HTTPException(status_code=400, detail="이미 존재하는 원료코드입니다.")
         
-        cat = data.category
-        if data.material_code.startswith("AR-"): cat = "제품"
-        elif data.material_code.startswith("1-") or data.material_code.startswith("2-") or data.material_code.startswith("3-"): cat = "원재료"
-        elif data.material_code.startswith("CB-"): cat = "반제품"
-
         new_m = MaterialMaster(
             material_code=data.material_code,
             material_name_kr=data.material_name_kr,
             material_name_en=data.material_name_en,
             cas_no=data.cas_no,
             supplier=data.supplier,
-            category=cat,
+            category=data.category,  # 사용자가 선택한 원료 구분 그대로 저장
             unit=data.unit,
             remark=data.remark
         )
@@ -1265,17 +1227,12 @@ def update_material(material_id: int, data: MaterialRequest):
             db.close()
             raise HTTPException(status_code=404, detail="원료를 찾을 수 없습니다.")
         
-        cat = data.category
-        if data.material_code.startswith("AR-"): cat = "제품"
-        elif data.material_code.startswith("1-") or data.material_code.startswith("2-") or data.material_code.startswith("3-"): cat = "원재료"
-        elif data.material_code.startswith("CB-"): cat = "반제품"
-
         m.material_code = data.material_code
         m.material_name_kr = data.material_name_kr
         m.material_name_en = data.material_name_en
         m.cas_no = data.cas_no
         m.supplier = data.supplier
-        m.category = cat
+        m.category = data.category  # 사용자가 선택한 원료 구분 그대로 반영
         m.unit = data.unit
         m.remark = data.remark
         db.commit()
