@@ -290,9 +290,12 @@ def dashboard():
             .badge-success { background: #22c55e; }
             .badge-progress { background: #d97706; }
 
-            .search-bar { display: flex; gap: 10px; margin-bottom: 15px; align-items: center; justify-content: space-between; }
-            .search-left { display: flex; gap: 10px; align-items: center; }
-            .search-bar input { padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; width: 260px; font-size: 13px; }
+            .search-bar { display: flex; gap: 10px; margin-bottom: 15px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+            .search-left { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+            .search-bar input { padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; width: 220px; font-size: 13px; }
+            .filter-btn { padding: 8px 12px; border: 1px solid #cbd5e1; background: white; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; color: #475569; }
+            .filter-btn.active { background: #0077FF; color: white; border-color: #0077FF; }
+            
             .pagination { display: flex; justify-content: center; gap: 5px; margin-top: 20px; align-items: center; }
             .pagination button { padding: 6px 12px; border: 1px solid #cbd5e1; background: white; border-radius: 4px; cursor: pointer; font-size: 13px; }
             .pagination button.active { background: #0077FF; color: white; border-color: #0077FF; }
@@ -435,6 +438,12 @@ def dashboard():
                             <input type="text" id="searchInput" placeholder="원료코드, 원료명, CAS No, 공급사 검색..." onkeyup="if(event.key==='Enter') searchMaterials()">
                             <button type="button" class="btn-action" onclick="searchMaterials()" style="padding: 8px 14px;">검색</button>
                             <button type="button" class="btn-delete" onclick="resetSearch()" style="padding: 8px 14px; background:#64748b;">초기화</button>
+                            <!-- 카테고리 필터 버튼 그룹 -->
+                            <button type="button" class="filter-btn active" id="btn-cat-all" onclick="filterByCategory('')">전체</button>
+                            <button type="button" class="filter-btn" id="btn-cat-원재료" onclick="filterByCategory('원재료')">원재료</button>
+                            <button type="button" class="filter-btn" id="btn-cat-제품" onclick="filterByCategory('제품')">제품</button>
+                            <button type="button" class="filter-btn" id="btn-cat-반제품" onclick="filterByCategory('반제품')">반제품</button>
+                            <button type="button" class="filter-btn" id="btn-cat-상품" onclick="filterByCategory('상품')">상품</button>
                         </div>
                         <div style="display: flex; gap: 10px;">
                             <button type="button" class="btn-delete" onclick="deleteSelectedMaterials()">선택 삭제</button>
@@ -624,6 +633,7 @@ def dashboard():
             let bomCurrentPage = 1;
             const pageSize = 30;
             let currentSearch = '';
+            let currentCategory = '';
             let currentBomSearch = '';
 
             function switchTab(tabId) {
@@ -634,6 +644,15 @@ def dashboard():
                 } else if (tabId === 'bom-tab') {
                     loadBomMaterials(1);
                 }
+            }
+
+            function filterByCategory(cat) {
+                currentCategory = cat;
+                document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
+                const btnId = cat === '' ? 'btn-cat-all' : `btn-cat-${cat}`;
+                const targetBtn = document.getElementById(btnId);
+                if (targetBtn) targetBtn.classList.add('active');
+                loadMaterials(1);
             }
 
             function toggleSelectAll(source) {
@@ -671,13 +690,16 @@ def dashboard():
                 const skip = (page - 1) * pageSize;
                 let url = `/api/v1/materials?skip=${skip}&limit=${pageSize}`;
                 if (currentSearch) url += `&search=${encodeURIComponent(currentSearch)}`;
+                if (currentCategory) url += `&category=${encodeURIComponent(currentCategory)}`;
 
                 fetch(url)
                 .then(res => res.json())
                 .then(data => {
                     const tbody = document.getElementById('materialTableBody');
                     tbody.innerHTML = '';
-                    document.getElementById('selectAll').checked = false;
+                    const selectAllCb = document.getElementById('selectAll');
+                    if (selectAllCb) selectAllCb.checked = false;
+
                     if (!data.data || data.data.length === 0) {
                         tbody.innerHTML = '<tr><td colspan="9" style="text-align: center;">등록된 원료 데이터가 없습니다.</td></tr>';
                         document.getElementById('paginationContainer').innerHTML = '';
@@ -859,6 +881,9 @@ def dashboard():
             function resetSearch() {
                 document.getElementById('searchInput').value = '';
                 currentSearch = '';
+                currentCategory = '';
+                document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
+                document.getElementById('btn-cat-all').classList.add('active');
                 loadMaterials(1);
             }
 
@@ -1164,7 +1189,7 @@ def save_bom(data: BomSaveRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/v1/materials")
-def get_materials(skip: int = 0, limit: int = 30, search: str = None):
+def get_materials(skip: int = 0, limit: int = 30, search: str = None, category: str = None):
     try:
         db = SessionLocal()
         query = db.query(MaterialMaster)
@@ -1179,6 +1204,9 @@ def get_materials(skip: int = 0, limit: int = 30, search: str = None):
                 (MaterialMaster.category.like(search_pattern)) |
                 (MaterialMaster.remark.like(search_pattern))
             )
+        if category:
+            query = query.filter(MaterialMaster.category == category)
+            
         total = query.count()
         materials = query.offset(skip).limit(limit).all()
         db.close()
