@@ -127,7 +127,7 @@ def auto_seed_materials():
                         cas_no=cas_no,
                         supplier=supplier,
                         unit="Kg",
-                        category=""
+                        category="원재료"
                     )
                     db.add(new_material)
                 db.commit()
@@ -160,7 +160,7 @@ class MaterialRequest(BaseModel):
     cas_no: str
     supplier: str
     unit: str = "Kg"
-    category: str = ""
+    category: str = "원재료"
 
 class BomSaveRequest(BaseModel):
     product_code: str
@@ -220,7 +220,7 @@ def dashboard():
             .card { background: #ffffff; padding: 20px; border-radius: 10px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); margin-bottom: 20px; }
             .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-top: 12px; }
             .form-group label { display: block; font-size: 12px; font-weight: 600; color: #475569; margin-bottom: 4px; }
-            .form-group input { width: 100%; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; box-sizing: border-box; font-size: 13px; }
+            .form-group input, .form-group select { width: 100%; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; box-sizing: border-box; font-size: 13px; background: #fff; }
             .btn-group { display: flex; gap: 10px; margin-top: 15px; }
             .btn-submit { background: #2563eb; color: white; border: none; padding: 8px 16px; font-weight: 600; border-radius: 6px; cursor: pointer; font-size: 13px; }
             .btn-order { background: #0077FF; color: white; border: none; padding: 8px 16px; font-weight: 600; border-radius: 6px; cursor: pointer; font-size: 13px; }
@@ -246,12 +246,12 @@ def dashboard():
             .pagination button:disabled { background: #f1f5f9; color: #94a3b8; cursor: not-allowed; }
 
             .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); justify-content: center; align-items: center; z-index: 1000; }
-            .modal-content { background: white; padding: 25px; border-radius: 10px; width: 750px; max-height: 90vh; overflow-y: auto; box-shadow: 0 4px 20px rgba(0,0,0,0.2); }
+            .modal-content { background: white; padding: 25px; border-radius: 10px; width: 500px; max-height: 90vh; overflow-y: auto; box-shadow: 0 4px 20px rgba(0,0,0,0.2); }
             .modal-header { font-size: 16px; font-weight: bold; margin-bottom: 15px; border-bottom: 2px solid #cbd5e1; padding-bottom: 8px; display: flex; justify-content: space-between; align-items: center; color: #1e293b; }
             .modal-close { cursor: pointer; font-size: 18px; color: #64748b; }
             .modal-body .form-group { margin-bottom: 12px; }
             .modal-body label { display: block; font-size: 12px; font-weight: 600; color: #475569; margin-bottom: 4px; }
-            .modal-body input { width: 100%; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 13px; box-sizing: border-box; }
+            .modal-body input, .modal-body select { width: 100%; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 13px; box-sizing: border-box; }
             .modal-footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
         </style>
     </head>
@@ -371,7 +371,7 @@ def dashboard():
             <div id="materials-tab" class="tab-content">
                 <div class="card">
                     <h1>원료 마스터 관리 (Raw Material Master)</h1>
-                    <p>아로마리소스 향료 원료 품목 리스트 조회, 검색, 수정 및 신규 등록 관리 (BOM과 실시간 연동)</p>
+                    <p>아로마리소스 향료 원료 품목 리스트 조회, 검색, 수정 및 신규 등록 관리 (구분: 원재료/제품/반제품/상품)</p>
                 </div>
 
                 <div class="card">
@@ -395,12 +395,13 @@ def dashboard():
                                 <th>원료명(영문)</th>
                                 <th>CAS No.</th>
                                 <th>공급사</th>
+                                <th>원료구분</th>
                                 <th>관리단위</th>
                                 <th>관리</th>
                             </tr>
                         </thead>
                         <tbody id="materialTableBody">
-                            <tr><td colspan="8" style="text-align: center;">원료 데이터를 불러오는 중...</td></tr>
+                            <tr><td colspan="9" style="text-align: center;">원료 데이터를 불러오는 중...</td></tr>
                         </tbody>
                     </table>
 
@@ -408,7 +409,7 @@ def dashboard():
                 </div>
             </div>
 
-            <!-- [탭 3] BOM 조회 및 관리 탭 (원료 마스터 스타일 적용) -->
+            <!-- [탭 3] BOM 조회 및 관리 탭 -->
             <div id="bom-tab" class="tab-content">
                 <div class="card">
                     <h1>BOM(소요량) 조회 및 관리</h1>
@@ -435,12 +436,13 @@ def dashboard():
                                 <th>원료명(영문)</th>
                                 <th>CAS No.</th>
                                 <th>공급사</th>
+                                <th>원료구분</th>
                                 <th>관리단위</th>
                                 <th>관리</th>
                             </tr>
                         </thead>
                         <tbody id="bomMaterialTableBody">
-                            <tr><td colspan="8" style="text-align: center;">원료 데이터를 불러오는 중...</td></tr>
+                            <tr><td colspan="9" style="text-align: center;">원료 데이터를 불러오는 중...</td></tr>
                         </tbody>
                     </table>
 
@@ -499,7 +501,16 @@ def dashboard():
                     <div class="form-group"><label>원료명(국문) *</label><input type="text" id="new_name_kr" placeholder="국문 원료명 입력"></div>
                     <div class="form-group"><label>원료명(영문)</label><input type="text" id="new_name_en" placeholder="영문 원료명 입력"></div>
                     <div class="form-group"><label>CAS No.</label><input type="text" id="new_cas" placeholder="예: 0000-00-0"></div>
-                    <div class="form-group"><label>공급사</label><input type="text" id="new_supplier" placeholder="공급사 또는 구매처 입력"></div>
+                    <div class="form-group"><label>공급사</label><input type="text" id="new_supplier" placeholder="공급사 입력"></div>
+                    <div class="form-group">
+                        <label>원료 구분</label>
+                        <select id="new_category">
+                            <option value="원재료">원재료</option>
+                            <option value="제품">제품</option>
+                            <option value="반제품">반제품</option>
+                            <option value="상품">상품</option>
+                        </select>
+                    </div>
                     <div class="form-group"><label>관리단위</label><input type="text" id="new_unit" value="Kg"></div>
                 </div>
                 <div class="modal-footer">
@@ -523,6 +534,15 @@ def dashboard():
                     <div class="form-group"><label>원료명(영문)</label><input type="text" id="edit_name_en"></div>
                     <div class="form-group"><label>CAS No.</label><input type="text" id="edit_cas"></div>
                     <div class="form-group"><label>공급사</label><input type="text" id="edit_supplier"></div>
+                    <div class="form-group">
+                        <label>원료 구분</label>
+                        <select id="edit_category">
+                            <option value="원재료">원재료</option>
+                            <option value="제품">제품</option>
+                            <option value="반제품">반제품</option>
+                            <option value="상품">상품</option>
+                        </select>
+                    </div>
                     <div class="form-group"><label>관리단위</label><input type="text" id="edit_unit"></div>
                 </div>
                 <div class="modal-footer">
@@ -561,7 +581,7 @@ def dashboard():
                     const tbody = document.getElementById('materialTableBody');
                     tbody.innerHTML = '';
                     if (!data.data || data.data.length === 0) {
-                        tbody.innerHTML = '<tr><td colspan="8" style="text-align: center;">등록된 원료 데이터가 없습니다.</td></tr>';
+                        tbody.innerHTML = '<tr><td colspan="9" style="text-align: center;">등록된 원료 데이터가 없습니다.</td></tr>';
                         document.getElementById('paginationContainer').innerHTML = '';
                         return;
                     }
@@ -576,6 +596,7 @@ def dashboard():
                             <td>${row.material_name_en || ''}</td>
                             <td>${row.cas_no || ''}</td>
                             <td>${row.supplier || ''}</td>
+                            <td><span class="badge" style="background:#475569;">${row.category || '원재료'}</span></td>
                             <td>${row.unit || 'Kg'}</td>
                             <td>
                                 <button class="btn-action" onclick='openEditModal(${JSON.stringify(row)})'>상세/수정</button>
@@ -600,7 +621,7 @@ def dashboard():
                     const tbody = document.getElementById('bomMaterialTableBody');
                     tbody.innerHTML = '';
                     if (!data.data || data.data.length === 0) {
-                        tbody.innerHTML = '<tr><td colspan="8" style="text-align: center;">등록된 품목이 없습니다.</td></tr>';
+                        tbody.innerHTML = '<tr><td colspan="9" style="text-align: center;">등록된 품목이 없습니다.</td></tr>';
                         document.getElementById('bomPaginationContainer').innerHTML = '';
                         return;
                     }
@@ -615,6 +636,7 @@ def dashboard():
                             <td>${row.material_name_en || ''}</td>
                             <td>${row.cas_no || ''}</td>
                             <td>${row.supplier || ''}</td>
+                            <td><span class="badge" style="background:#475569;">${row.category || '원재료'}</span></td>
                             <td>${row.unit || 'Kg'}</td>
                             <td>
                                 <button class="btn-action" onclick="openBomModal('${row.material_code}', '${row.material_name_kr}')" style="background:#0077FF;">BOM 등록/수정</button>
@@ -668,7 +690,7 @@ def dashboard():
                     tbody.innerHTML = '';
                     const items = data.items || [];
                     if (items.length === 0) {
-                        addBomItemRow(); // 빈 행 하나 추가
+                        addBomItemRow();
                     } else {
                         items.forEach(item => {
                             addBomItemRow(item.material_code, item.material_name, item.qty, item.unit, item.cas_no);
@@ -762,6 +784,7 @@ def dashboard():
                 document.getElementById('new_name_en').value = '';
                 document.getElementById('new_cas').value = '';
                 document.getElementById('new_supplier').value = '';
+                document.getElementById('new_category').value = '원재료';
                 document.getElementById('new_unit').value = 'Kg';
                 document.getElementById('createModal').style.display = 'flex';
             }
@@ -777,8 +800,8 @@ def dashboard():
                     material_name_en: document.getElementById('new_name_en').value.trim(),
                     cas_no: document.getElementById('new_cas').value.trim(),
                     supplier: document.getElementById('new_supplier').value.trim(),
-                    unit: document.getElementById('new_unit').value.trim() || 'Kg',
-                    category: ""
+                    category: document.getElementById('new_category').value,
+                    unit: document.getElementById('new_unit').value.trim() || 'Kg'
                 };
                 fetch('/api/v1/materials', {
                     method: 'POST',
@@ -791,6 +814,8 @@ def dashboard():
                         alert("신규 원료가 등록되었습니다.");
                         closeCreateModal();
                         loadMaterials(1);
+                    } else {
+                        alert("등록 실패: " + (data.detail || "중복된 코드일 수 있습니다."));
                     }
                 });
             }
@@ -802,6 +827,7 @@ def dashboard():
                 document.getElementById('edit_name_en').value = row.material_name_en || '';
                 document.getElementById('edit_cas').value = row.cas_no || '';
                 document.getElementById('edit_supplier').value = row.supplier || '';
+                document.getElementById('edit_category').value = row.category || '원재료';
                 document.getElementById('edit_unit').value = row.unit || 'Kg';
                 document.getElementById('editModal').style.display = 'flex';
             }
@@ -818,8 +844,8 @@ def dashboard():
                     material_name_en: document.getElementById('edit_name_en').value,
                     cas_no: document.getElementById('edit_cas').value,
                     supplier: document.getElementById('edit_supplier').value,
-                    unit: document.getElementById('edit_unit').value,
-                    category: ""
+                    category: document.getElementById('edit_category').value,
+                    unit: document.getElementById('edit_unit').value
                 };
                 fetch(`/api/v1/materials/${id}`, {
                     method: 'PUT',
@@ -954,7 +980,6 @@ def save_bom(data: BomSaveRequest):
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ''', (bom_id, item.get('material_code'), item.get('material_name'), item.get('qty'), item.get('unit', 'KG'), item.get('cas_no', ''), '', data.bom_version))
             
-            # 원료 마스터 자동 연동 (등록되지 않은 원료일 경우 자동 추가)
             m_code = item.get('material_code')
             if m_code:
                 existing = db_mat.query(MaterialMaster).filter(MaterialMaster.material_code == m_code).first()
@@ -965,8 +990,8 @@ def save_bom(data: BomSaveRequest):
                         material_name_en="",
                         cas_no=item.get('cas_no', ''),
                         supplier="",
-                        unit=item.get('unit', 'Kg'),
-                        category=""
+                        category="원재료",
+                        unit=item.get('unit', 'Kg')
                     )
                     db_mat.add(new_m)
         db_mat.commit()
@@ -1002,8 +1027,8 @@ def get_materials(skip: int = 0, limit: int = 30, search: str = None):
             "material_name_en": m.material_name_en,
             "cas_no": m.cas_no,
             "supplier": m.supplier,
-            "unit": m.unit,
-            "category": m.category
+            "category": m.category or "원재료",
+            "unit": m.unit
         } for m in materials]
         return {"status": "SUCCESS", "total": total, "count": len(data), "data": data}
     except Exception as e:
@@ -1023,8 +1048,8 @@ def create_material(data: MaterialRequest):
             material_name_en=data.material_name_en,
             cas_no=data.cas_no,
             supplier=data.supplier,
-            unit=data.unit,
-            category=data.category
+            category=data.category,
+            unit=data.unit
         )
         db.add(new_m)
         db.commit()
@@ -1046,6 +1071,7 @@ def update_material(material_id: int, data: MaterialRequest):
         m.material_name_en = data.material_name_en
         m.cas_no = data.cas_no
         m.supplier = data.supplier
+        m.category = data.category
         m.unit = data.unit
         db.commit()
         db.close()
