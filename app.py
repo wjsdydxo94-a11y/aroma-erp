@@ -542,7 +542,7 @@ def dashboard():
             <div id="bom-tab" class="tab-content">
                 <div class="card">
                     <h1>BOM(소요량) 조회 및 관리</h1>
-                    <p>품목코드를 클릭하거나 [BOM 등록/수정] 버튼을 눌러 개별 품목의 처방을 관리하세요.</p>
+                    <p>품목코드를 체크하여 삭제하거나 신규 품목을 등록할 수 있습니다.</p>
                 </div>
 
                 <div class="card">
@@ -554,11 +554,16 @@ def dashboard():
                             <button type="button" class="btn-action" onclick="searchBomMaterials()" style="padding: 8px 14px;">검색</button>
                             <button type="button" class="btn-delete" onclick="resetBomSearch()" style="padding: 8px 14px; background:#64748b;">초기화</button>
                         </div>
+                        <div style="display: flex; gap: 10px;">
+                            <button type="button" class="btn-delete" onclick="deleteSelectedBomMaterials()">선택 삭제</button>
+                            <button type="button" class="btn-order" onclick="openCreateModal()">신규 등록</button>
+                        </div>
                     </div>
 
                     <table>
                         <thead>
                             <tr>
+                                <th style="width: 40px;"><input type="checkbox" id="bomSelectAll" onclick="toggleBomSelectAll(this)"></th>
                                 <th style="width: 60px;">순번</th>
                                 <th>품목코드</th>
                                 <th>원료명(국문)</th>
@@ -571,7 +576,7 @@ def dashboard():
                             </tr>
                         </thead>
                         <tbody id="bomMaterialTableBody">
-                            <tr><td colspan="9" style="text-align: center;">원료 데이터를 불러오는 중...</td></tr>
+                            <tr><td colspan="10" style="text-align: center;">원료 데이터를 불러오는 중...</td></tr>
                         </tbody>
                     </table>
 
@@ -590,7 +595,7 @@ def dashboard():
                 <div class="modal-body">
                     <input type="hidden" id="yearly_target_id">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-                        <p style="font-size: 13px; color: #475569;">연도별 예계량 수량을 클릭하여 기입하고 저장하세요.</p>
+                        <p style="font-size: 13px; color: #475569;">연도별 예계량 수량을 기입하고 저장하세요.</p>
                         <button type="button" class="btn-action" onclick="addYearlyRow()" style="padding: 5px 10px;">+ 연도 추가</button>
                     </div>
                     <div style="max-height: 250px; overflow-y: auto;">
@@ -790,6 +795,11 @@ def dashboard():
                 checkboxes.forEach(cb => cb.checked = source.checked);
             }
 
+            function toggleBomSelectAll(source) {
+                const checkboxes = document.querySelectorAll('.bom-row-checkbox');
+                checkboxes.forEach(cb => cb.checked = source.checked);
+            }
+
             function deleteSelectedMaterials() {
                 const selectedIds = Array.from(document.querySelectorAll('.row-checkbox:checked'))
                                          .map(cb => parseInt(cb.value));
@@ -810,6 +820,33 @@ def dashboard():
                         alert(data.message);
                         loadMaterials(currentPage);
                         loadKtngMaterials(ktngCurrentPage);
+                        loadBomMaterials(bomCurrentPage);
+                    } else {
+                        alert("삭제 실패");
+                    }
+                });
+            }
+
+            function deleteSelectedBomMaterials() {
+                const selectedIds = Array.from(document.querySelectorAll('.bom-row-checkbox:checked'))
+                                         .map(cb => parseInt(cb.value));
+                if (selectedIds.length === 0) {
+                    alert("삭제할 항목을 체크박스로 하나 이상 선택해 주세요.");
+                    return;
+                }
+                if (!confirm(`선택한 ${selectedIds.length}개의 품목 데이터를 정말 삭제하시겠습니까?`)) return;
+
+                fetch('/api/v1/materials/delete-batch', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ids: selectedIds })
+                })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.status === "SUCCESS") {
+                        alert(data.message);
+                        loadBomMaterials(bomCurrentPage);
+                        loadMaterials(currentPage);
                     } else {
                         alert("삭제 실패");
                     }
@@ -949,7 +986,6 @@ def dashboard():
                 const tr = document.createElement('tr');
                 tr.className = 'yearly-row';
                 
-                // 연도 선택 셀렉트박스 생성
                 const years = ['2024', '2025', '2026', '2027', '2028', '2029', '2030'];
                 let optionsHtml = '';
                 years.forEach(y => {
@@ -1063,8 +1099,11 @@ def dashboard():
                 .then(data => {
                     const tbody = document.getElementById('bomMaterialTableBody');
                     tbody.innerHTML = '';
+                    const selectAllCb = document.getElementById('bomSelectAll');
+                    if (selectAllCb) selectAllCb.checked = false;
+
                     if (!data.data || data.data.length === 0) {
-                        tbody.innerHTML = '<tr><td colspan="9" style="text-align: center;">등록된 품목이 없습니다.</td></tr>';
+                        tbody.innerHTML = '<tr><td colspan="10" style="text-align: center;">등록된 품목이 없습니다.</td></tr>';
                         document.getElementById('bomPaginationContainer').innerHTML = '';
                         return;
                     }
@@ -1073,6 +1112,7 @@ def dashboard():
                         const rowNum = skip + index + 1;
                         const tr = document.createElement('tr');
                         tr.innerHTML = `
+                            <td><input type="checkbox" class="bom-row-checkbox" value="${row.id}"></td>
                             <td>${rowNum}</td>
                             <td><span class="clickable-no" onclick="openBomModal('${row.material_code}', '${row.material_name_kr}')">${row.material_code || ''}</span></td>
                             <td><span class="clickable-no" onclick="openBomModal('${row.material_code}', '${row.material_name_kr}')">${row.material_name_kr || ''}</span></td>
@@ -1326,6 +1366,7 @@ def dashboard():
                         closeCreateModal();
                         loadMaterials(1);
                         loadKtngMaterials(1);
+                        loadBomMaterials(1);
                     } else {
                         alert("등록 실패: " + (data.detail || "중복된 코드일 수 있습니다."));
                     }
@@ -1375,6 +1416,7 @@ def dashboard():
                         closeEditModal();
                         loadMaterials(currentPage);
                         loadKtngMaterials(ktngCurrentPage);
+                        loadBomMaterials(bomCurrentPage);
                     }
                 });
             }
@@ -1388,6 +1430,7 @@ def dashboard():
                         alert("삭제되었습니다.");
                         loadMaterials(currentPage);
                         if (type === 'ktng') loadKtngMaterials(ktngCurrentPage);
+                        loadBomMaterials(bomCurrentPage);
                     }
                 });
             }
@@ -1444,7 +1487,7 @@ def dashboard():
                 });
             }
 
-            loadOrders(); loadWorkOrders(); loadLogs(); loadKtngMaterials(1);
+            loadOrders(); loadWorkOrders(); loadLogs(); loadKtngMaterials(1); loadBomMaterials(1);
         </script>
     </body>
     </html>
