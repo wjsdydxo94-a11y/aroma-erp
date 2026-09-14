@@ -222,9 +222,9 @@ class OrderRequest(BaseModel):
 class MaterialRequest(BaseModel):
     material_code: str
     material_name_kr: str
-    material_name_en: str
-    cas_no: str
-    supplier: str
+    material_name_en: str = ""
+    cas_no: str = ""
+    supplier: str = ""
     unit: str = "Kg"
     category: str = "원재료"
     remark: str = ""
@@ -681,7 +681,7 @@ def dashboard():
             </div>
         </div>
 
-        <!-- 신규 원료 등록 팝업 모달 -->
+        <!-- 간소화된 신규 원료 등록 팝업 모달 (제품코드, 제품명, 구분, 적요) -->
         <div id="createModal" class="modal-overlay">
             <div class="modal-content">
                 <div class="modal-header">
@@ -690,21 +690,18 @@ def dashboard():
                 </div>
                 <div class="modal-body">
                     <div class="form-group">
-                        <label>원료코드 *</label>
+                        <label>제품코드 *</label>
                         <input type="text" id="new_code" placeholder="예: 1-999 또는 AR-001" oninput="onMaterialCodeInput(this.value)">
                     </div>
                     <div class="form-group">
-                        <label>원료명(국문) *</label>
-                        <input type="text" id="new_name_kr" placeholder="국문 원료명 입력">
+                        <label>제품명 *</label>
+                        <input type="text" id="new_name_kr" placeholder="국문 제품명 입력">
                         <div id="duplicateNameSuggestions" style="margin-top: 5px; display: none;">
                             <select id="suggestedNamesSelect" style="width:100%; padding:6px; border:1px solid #0077FF; border-radius:4px; background:#eff6ff;" onchange="selectSuggestedName(this.value)">
-                                <option value="">-- 일치하거나 유사한 원료명 선택 --</option>
+                                <option value="">-- 일치하거나 유사한 제품명 선택 --</option>
                             </select>
                         </div>
                     </div>
-                    <div class="form-group"><label>제조사</label><input type="text" id="new_name_en" placeholder="제조사 입력"></div>
-                    <div class="form-group"><label>CAS No.</label><input type="text" id="new_cas" placeholder="예: 0000-00-0"></div>
-                    <div class="form-group"><label>공급사</label><input type="text" id="new_supplier" placeholder="공급사 입력"></div>
                     <div class="form-group">
                         <label>원료 구분</label>
                         <select id="new_category">
@@ -733,8 +730,8 @@ def dashboard():
                 </div>
                 <div class="modal-body">
                     <input type="hidden" id="edit_id">
-                    <div class="form-group"><label>원료코드</label><input type="text" id="edit_code"></div>
-                    <div class="form-group"><label>원료명(국문)</label><input type="text" id="edit_name_kr"></div>
+                    <div class="form-group"><label>제품코드</label><input type="text" id="edit_code"></div>
+                    <div class="form-group"><label>제품명</label><input type="text" id="edit_name_kr"></div>
                     <div class="form-group"><label>제조사</label><input type="text" id="edit_name_en"></div>
                     <div class="form-group"><label>CAS No.</label><input type="text" id="edit_cas"></div>
                     <div class="form-group"><label>공급사</label><input type="text" id="edit_supplier"></div>
@@ -955,7 +952,6 @@ def dashboard():
                 });
             }
 
-            // 연도별 예계량 모달 열기
             function openYearlyPreModal(id) {
                 const m = currentMaterialMap[id];
                 if (!m) return;
@@ -1026,7 +1022,6 @@ def dashboard():
                 });
             }
 
-            // LOT별 재고수량 모달 열기
             function openLotStockModal(id) {
                 const m = currentMaterialMap[id];
                 if (!m) return;
@@ -1186,12 +1181,13 @@ def dashboard():
                 document.getElementById('bomModal').style.display = 'none';
             }
 
+            // BOM 행 추가 시 원료코드 입력에 자동완성 룩업 연결
             function addBomItemRow(code='', name='', qty='', unit='KG', cas='') {
                 const tbody = document.getElementById('modalBomItemsTableBody');
                 const tr = document.createElement('tr');
                 tr.className = 'bom-item-row';
                 tr.innerHTML = `
-                    <td><input type="text" class="b-code" value="${code}" placeholder="원료코드" style="padding:4px; width:100%;"></td>
+                    <td><input type="text" class="b-code" value="${code}" placeholder="원료코드" style="padding:4px; width:100%;" oninput="onBomCodeInput(this)"></td>
                     <td><input type="text" class="b-name" value="${name}" placeholder="원료명" style="padding:4px; width:100%;"></td>
                     <td><input type="number" step="0.001" class="b-qty" value="${qty}" placeholder="수량" style="padding:4px; width:100%;"></td>
                     <td><input type="text" class="b-unit" value="${unit}" style="padding:4px; width:100%;"></td>
@@ -1199,6 +1195,24 @@ def dashboard():
                     <td><button type="button" class="btn-delete" onclick="this.closest('tr').remove()" style="padding:4px 8px;">삭제</button></td>
                 `;
                 tbody.appendChild(tr);
+            }
+
+            function onBomCodeInput(inputEl) {
+                const code = inputEl.value.trim();
+                if (code.length < 2) return;
+
+                fetch(`/api/v1/materials/lookup?code=${encodeURIComponent(code)}`)
+                .then(res => res.json())
+                .then(data => {
+                    if (data.status === "SUCCESS" && data.matches && data.matches.length > 0) {
+                        const m = data.matches[0];
+                        const tr = inputEl.closest('tr');
+                        if (tr && m.material_name_kr) {
+                            tr.querySelector('.b-name').value = m.material_name_kr;
+                            if (m.cas_no) tr.querySelector('.b-cas').value = m.cas_no;
+                        }
+                    }
+                });
             }
 
             function saveBomData() {
@@ -1279,9 +1293,6 @@ def dashboard():
             function openCreateModal() {
                 document.getElementById('new_code').value = '';
                 document.getElementById('new_name_kr').value = '';
-                document.getElementById('new_name_en').value = '';
-                document.getElementById('new_cas').value = '';
-                document.getElementById('new_supplier').value = '';
                 document.getElementById('new_category').value = '원재료';
                 document.getElementById('new_remark').value = '';
                 document.getElementById('duplicateNameSuggestions').style.display = 'none';
@@ -1308,18 +1319,15 @@ def dashboard():
                         const matches = data.matches;
                         if (matches.length === 1) {
                             document.getElementById('new_name_kr').value = matches[0].material_name_kr || '';
-                            document.getElementById('new_name_en').value = matches[0].material_name_en || '';
-                            document.getElementById('new_cas').value = matches[0].cas_no || '';
-                            document.getElementById('new_supplier').value = matches[0].supplier || '';
                             document.getElementById('new_category').value = matches[0].category || '원재료';
                             document.getElementById('duplicateNameSuggestions').style.display = 'none';
                         } else {
                             const select = document.getElementById('suggestedNamesSelect');
-                            select.innerHTML = '<option value="">-- 일치하는 원료 선택 (중복 항목) --</option>';
+                            select.innerHTML = '<option value="">-- 일치하는 제품 선택 (중복 항목) --</option>';
                             matches.forEach(m => {
                                 const opt = document.createElement('option');
                                 opt.value = JSON.stringify(m);
-                                opt.innerText = `[${m.material_code}] ${m.material_name_kr} (공급사: ${m.supplier || '미정'})`;
+                                opt.innerText = `[${m.material_code}] ${m.material_name_kr}`;
                                 select.appendChild(opt);
                             });
                             document.getElementById('duplicateNameSuggestions').style.display = 'block';
@@ -1333,9 +1341,6 @@ def dashboard():
                 const m = JSON.parse(valStr);
                 document.getElementById('new_code').value = m.material_code || '';
                 document.getElementById('new_name_kr').value = m.material_name_kr || '';
-                document.getElementById('new_name_en').value = m.material_name_en || '';
-                document.getElementById('new_cas').value = m.cas_no || '';
-                document.getElementById('new_supplier').value = m.supplier || '';
                 document.getElementById('new_category').value = m.category || '원재료';
                 document.getElementById('duplicateNameSuggestions').style.display = 'none';
             }
@@ -1347,9 +1352,9 @@ def dashboard():
                 const payload = {
                     material_code: code,
                     material_name_kr: document.getElementById('new_name_kr').value.trim(),
-                    material_name_en: document.getElementById('new_name_en').value.trim(),
-                    cas_no: document.getElementById('new_cas').value.trim(),
-                    supplier: document.getElementById('new_supplier').value.trim(),
+                    material_name_en: "",
+                    cas_no: "",
+                    supplier: "",
                     category: category,
                     unit: 'Kg',
                     remark: document.getElementById('new_remark').value.trim()
@@ -1704,7 +1709,7 @@ def create_material(data: MaterialRequest):
         existing = db.query(MaterialMaster).filter(MaterialMaster.material_code == data.material_code).first()
         if existing:
             db.close()
-            raise HTTPException(status_code=400, detail="이미 존재하는 원료코드입니다.")
+            raise HTTPException(status_code=400, detail="이미 존재하는 제품코드입니다.")
         
         new_m = MaterialMaster(
             material_code=data.material_code,
@@ -1722,7 +1727,7 @@ def create_material(data: MaterialRequest):
         db.add(new_m)
         db.commit()
         db.close()
-        return {"status": "SUCCESS", "message": "신규 원료가 등록되었습니다."}
+        return {"status": "SUCCESS", "message": "신규 제품이 등록되었습니다."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -1733,7 +1738,7 @@ def delete_batch_materials(data: BatchDeleteRequest):
         db.query(MaterialMaster).filter(MaterialMaster.id.in_(data.ids)).delete(synchronize_session=False)
         db.commit()
         db.close()
-        return {"status": "SUCCESS", "message": f"선택한 {len(data.ids)}건의 원료가 삭제되었습니다."}
+        return {"status": "SUCCESS", "message": f"선택한 {len(data.ids)}건의 품목이 삭제되었습니다."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
