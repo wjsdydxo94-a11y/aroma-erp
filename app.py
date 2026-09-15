@@ -10,7 +10,7 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from typing import List
 from database import engine, Base, SessionLocal, MaterialMaster
-
+# 테스트 주석입니다
 Base.metadata.create_all(bind=engine)
 app = FastAPI()
 
