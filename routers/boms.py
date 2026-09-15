@@ -1,99 +1,133 @@
-import sqlite3
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form
 from pydantic import BaseModel
-from typing import List
-from database import SessionLocal, MaterialMaster
+import sqlite3
+import pandas as pd
+import io
 
-router = APIRouter(prefix="/api/v1/boms", tags=["BOM"])
+router = APIRouter(prefix="/api/v1", tags=["boms"])
 
-class BomSaveRequest(BaseModel):
+def get_db_connection():
+    conn = sqlite3.connect('erp_factory.db')
+    conn.row_factory = sqlite3.Row
+    return conn
+
+class BomItem(BaseModel):
+    material_code: str
+    material_name: str
+    qty: float
+    unit: str = "KG"
+    cas_no: str = ""
+    location: str = ""
+
+class BomSaveModel(BaseModel):
     product_code: str
     product_name: str
-    bom_version: str = "1"
-    items: List[dict]
+    bom_version: str = "v1.0"
+    items: list[BomItem]
 
-def get_auto_category(code: str) -> str:
-    code = str(code).strip()
-    if code == "1000052941":
-        return "제품"
-    elif code.startswith("1000"):
-        return "KT&G상품"
-    elif code.startswith("AR-"):
-        return "제품"
-    elif code.startswith("CB-"):
-        return "반제품"
-    elif "-M" in code or "-P" in code:
-        return "반제품"
+@router.get("/boms")
+def get_bom(product_code: str, version: str = "v1.0"):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM bom_headers WHERE product_code = ? AND bom_version = ?", (product_code, version))
+    header = cursor.fetchone()
+    if not header:
+        # 버전이 없다면 기본 헤더 생성 혹은 빈 리스트 반환
+        conn.close()
+        return {"status": "SUCCESS", "header": None, "items": [], "versions": [version]}
+    
+    cursor.execute("SELECT * FROM bom_items WHERE bom_id = ?", (header["bom_id"],))
+    items = [dict(row) for row in cursor.fetchall()]
+    
+    # 해당 제품의 모든 버전 리스트 조회
+    cursor.execute("SELECT DISTINCT bom_version FROM bom_headers WHERE product_code = ?", (product_code,))
+    versions = [row["bom_version"] for row in cursor.fetchall()]
+    if not versions:
+        versions = ["v1.0"]
+
+    conn.close()
+    return {"status": "SUCCESS", "header": dict(header), "items": items, "versions": versions}
+
+@router.post("/boms/save")
+def save_bom(bom: BomSaveModel):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    # 기존 헤더 확인
+    cursor.execute("SELECT bom_id FROM bom_headers WHERE product_code = ? AND bom_version = ?", (bom.product_code, bom.bom_version))
+    header = cursor.fetchone()
+    
+    if header:
+        bom_id = header["bom_id"]
+        cursor.execute("DELETE FROM bom_items WHERE bom_id = ?", (bom_id,))
     else:
-        return "원재료"
+        cursor.execute("""
+            INSERT INTO bom_headers (product_code, product_name, bom_version, is_default, production_qty)
+            VALUES (?, ?, ?, 1, 1.0)
+        """, (bom.product_code, bom.product_name, bom.bom_version))
+        bom_id = cursor.lastrowid
 
-@router.get("")
-def get_bom(product_code: str, version: str = "1"):
+    for item in bom.items:
+        cursor.execute("""
+            INSERT INTO bom_items (bom_id, material_code, material_name, qty, unit, cas_no, location, item_bom_version)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (bom_id, item.material_code, item.material_name, item.qty, item.unit, item.cas_no, item.location, bom.bom_version))
+
+    conn.commit()
+    conn.close()
+    return {"status": "SUCCESS", "message": f"BOM 버전 ({bom.bom_version})이 저장되었습니다."}
+
+@router.post("/boms/upload-excel")
+async def upload_bom_excel(product_code: str = Form(...), bom_version: str = Form(...), file: UploadFile = File(...)):
+    contents = await file.read()
     try:
-        conn = sqlite3.connect('erp_factory.db')
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM bom_headers WHERE product_code = ? AND bom_version = ?", (product_code, version))
-        header = cursor.fetchone()
-        if not header:
-            conn.close()
-            return {"header": None, "items": []}
-        
-        cursor.execute("SELECT * FROM bom_items WHERE bom_id = ?", (header['bom_id'],))
-        items = cursor.fetchall()
-        conn.close()
-        return {
-            "header": dict(header),
-            "items": [dict(it) for it in items]
-        }
+        df = pd.read_excel(io.BytesIO(contents), header=None)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=400, detail=f"엑셀 파일 읽기 실패: {e}")
 
-@router.post("/save")
-def save_bom(data: BomSaveRequest):
-    try:
-        conn = sqlite3.connect('erp_factory.db')
-        cursor = conn.cursor()
-        
-        cursor.execute("SELECT bom_id FROM bom_headers WHERE product_code = ? AND bom_version = ?", (data.product_code, data.bom_version))
-        row = cursor.fetchone()
-        if row:
-            bom_id = row[0]
-            cursor.execute("DELETE FROM bom_items WHERE bom_id = ?", (bom_id,))
-            cursor.execute("UPDATE bom_headers SET product_name = ? WHERE bom_id = ?", (data.product_name, bom_id))
-        else:
-            cursor.execute("INSERT INTO bom_headers (product_code, product_name, process_code, bom_version, production_qty) VALUES (?, ?, ?, ?, ?)",
-                           (data.product_code, data.product_name, "제품", data.bom_version, 1.0))
-            bom_id = cursor.lastrowid
-            
-        db_mat = SessionLocal()
-        for item in data.items:
-            cursor.execute('''
-                INSERT INTO bom_items (bom_id, material_code, material_name, qty, unit, cas_no, location, item_bom_version)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (bom_id, item.get('material_code'), item.get('material_name'), item.get('qty'), item.get('unit', 'KG'), item.get('cas_no', ''), '', data.bom_version))
-            
-            m_code = item.get('material_code')
-            if m_code:
-                existing = db_mat.query(MaterialMaster).filter(MaterialMaster.material_code == m_code).first()
-                cat = get_auto_category(m_code)
+    items = []
+    for idx, row in df.iterrows():
+        vals = [str(v).strip() for v in row.values if pd.notnull(v)]
+        if not vals or any(kw in " ".join(vals) for kw in ["코드", "품목", "원료명", "수량", "CAS"]):
+            continue
+        if len(vals) >= 2:
+            code = vals[0]
+            name = vals[1] if len(vals) > 1 else ""
+            qty = 0.0
+            for v in vals[2:]:
+                try:
+                    qty = float(v)
+                    break
+                except ValueError:
+                    continue
+            unit = "KG"
+            cas = ""
+            for v in vals:
+                if "-" in v and len(v) >= 7:
+                    cas = v
+            items.append(BomItem(material_code=code, material_name=name, qty=qty, unit=unit, cas_no=cas))
 
-                if not existing:
-                    new_m = MaterialMaster(
-                        material_code=m_code,
-                        material_name_kr=item.get('material_name'),
-                        material_name_en="",
-                        cas_no=item.get('cas_no', ''),
-                        supplier="",
-                        category=cat,
-                        unit=item.get('unit', 'Kg'),
-                        remark=""
-                    )
-                    db_mat.add(new_m)
-        db_mat.commit()
-        db_mat.close()
-        conn.commit()
-        conn.close()
-        return {"status": "SUCCESS", "message": "BOM이 성공적으로 저장되었습니다."}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT bom_id FROM bom_headers WHERE product_code = ? AND bom_version = ?", (product_code, bom_version))
+    header = cursor.fetchone()
+    
+    if header:
+        bom_id = header["bom_id"]
+        cursor.execute("DELETE FROM bom_items WHERE bom_id = ?", (bom_id,))
+    else:
+        cursor.execute("""
+            INSERT INTO bom_headers (product_code, product_name, bom_version, is_default, production_qty)
+            VALUES (?, ?, ?, 1, 1.0)
+        """, (product_code, product_code, bom_version))
+        bom_id = cursor.lastrowid
+
+    for item in items:
+        cursor.execute("""
+            INSERT INTO bom_items (bom_id, material_code, material_name, qty, unit, cas_no, location, item_bom_version)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (bom_id, item.material_code, item.material_name, item.qty, item.unit, item.cas_no, "", bom_version))
+
+    conn.commit()
+    conn.close()
+    return {"status": "SUCCESS", "message": f"{len(items)}개의 원료 BOM이 엑셀에서 업로드되었습니다."}
