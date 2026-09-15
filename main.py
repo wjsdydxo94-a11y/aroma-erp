@@ -3,7 +3,9 @@ import glob
 import pandas as pd
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
-
+import os
+import shutil
+from datetime import datetime
 from database import engine, Base, SessionLocal, MaterialMaster
 from routers import materials, orders, boms
 
@@ -29,8 +31,29 @@ def get_auto_category(code: str) -> str:
         return "반제품"
     else:
         return "원재료"
-
+def backup_database():
+    """서버 구동 시 erp_factory.db 파일을 안전하게 백업합니다."""
+    db_file = "erp_factory.db"
+    backup_dir = "backups"
+    
+    if os.path.exists(db_file):
+        if not os.path.exists(backup_dir):
+            os.makedirs(backup_dir)
+        
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_file = os.path.join(backup_dir, f"erp_factory_{timestamp}.db")
+        
+        try:
+            shutil.copy(db_file, backup_file)
+            print(f"[Backup Success] 데이터베이스 백업 완료: {backup_file}")
+            
+            backups = sorted(os.listdir(backup_dir))
+            if len(backups) > 10:
+                os.remove(os.path.join(backup_dir, backups[0]))
+        except Exception as e:
+            print(f"[Backup Error] 백업 실패: {e}")
 def init_db():
+    backup_database()
     conn = sqlite3.connect('erp_factory.db')
     cursor = conn.cursor()
     cursor.execute('''
