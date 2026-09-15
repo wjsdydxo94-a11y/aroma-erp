@@ -97,13 +97,23 @@ def print_work_order(work_order_id: int):
         conn.close()
         raise HTTPException(status_code=404, detail="작업지시서를 찾을 수 없습니다.")
     
-    # product_summary 또는 연동된 품목의 BOM 아이템 조회 시도
     cursor.execute("SELECT * FROM bom_headers WHERE product_code = ? OR product_name = ?", (wo["product_summary"], wo["product_summary"]))
     bom_h = cursor.fetchone()
     items = []
     if bom_h:
         cursor.execute("SELECT * FROM bom_items WHERE bom_id = ?", (bom_h["bom_id"],))
-        items = [dict(row) for row in cursor.fetchall()]
+        raw_items = cursor.fetchall()
+        for item in raw_items:
+            item_dict = dict(item)
+            cursor.execute("SELECT category, stock_qty FROM material_masters WHERE material_code = ?", (item_dict["material_code"],))
+            mat = cursor.fetchone()
+            if mat:
+                item_dict["category"] = mat["category"] or "원재료"
+                item_dict["stock_qty"] = mat["stock_qty"] or 0.0
+            else:
+                item_dict["category"] = "원재료"
+                item_dict["stock_qty"] = 0.0
+            items.append(item_dict)
     
     conn.close()
     return {
