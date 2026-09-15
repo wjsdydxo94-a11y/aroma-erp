@@ -41,12 +41,11 @@ def backup_database():
         backup_file = os.path.join(backup_dir, f"erp_factory_{timestamp}.db")
         try:
             shutil.copy(db_file, backup_file)
-            print(f"[Backup Success] 데이터베이스 백업 완료: {backup_file}")
             backups = sorted(os.listdir(backup_dir))
             if len(backups) > 10:
                 os.remove(os.path.join(backup_dir, backups[0]))
         except Exception as e:
-            print(f"[Backup Error] 백업 실패: {e}")
+            print(f"[Backup Error] {e}")
 
 def init_db():
     backup_database()
@@ -167,6 +166,7 @@ def auto_seed_materials():
                     if name_kr.lower() in ["nan", "none"]: name_kr = ""
                     if name_en.lower() in ["nan", "none"]: name_en = ""
                     cat = sheet_cat_override if sheet_cat_override else get_auto_category(material_code)
+
                     existing = db.query(MaterialMaster).filter(MaterialMaster.material_code == material_code).first()
                     if not existing:
                         new_material = MaterialMaster(
@@ -186,10 +186,11 @@ def auto_seed_materials():
                         )
                         db.add(new_material)
                     else:
-                        if name_kr: existing.material_name_kr = name_kr
-                        if name_en: existing.material_name_en = name_en
-                        if cas_no: existing.cas_no = cas_no
-                        if supplier: existing.supplier = supplier
+                        # 기존 데이터의 사용자가 입력한 수량(pre_weighing, stock_qty 등)은 절대 덮어쓰지 않고 메타데이터만 갱신
+                        if name_kr and not existing.material_name_kr: existing.material_name_kr = name_kr
+                        if name_en and not existing.material_name_en: existing.material_name_en = name_en
+                        if cas_no and not existing.cas_no: existing.cas_no = cas_no
+                        if supplier and not existing.supplier: existing.supplier = supplier
                         if sheet_cat_override: existing.category = sheet_cat_override
             db.commit()
         except Exception as e:
@@ -328,7 +329,6 @@ def dashboard():
         </aside>
 
         <main class="main-content">
-            <!-- [탭 1] 주문서 관리 탭 -->
             <div id="orders-tab" class="tab-content active">
                 <div class="card">
                     <h1>주문서 관리 (Order Management)</h1>
@@ -361,19 +361,18 @@ def dashboard():
                 </div>
             </div>
 
-            <!-- [탭 2] 작업지시 및 생산 투입 탭 -->
             <div id="work-orders-tab" class="tab-content">
                 <div class="card">
                     <h1>작업지시서 및 생산 투입 관리</h1>
-                    <p>현장 작업지시서 발행 상태 확인 및 매니폴드 투입에 따른 BOM 자동 재고 차감 패널</p>
+                    <p>현장 작업지시서 발행 상태 확인 및 인쇄, 매니폴드 투입에 따른 BOM 자동 재고 차감 패널</p>
                 </div>
                 <div class="card">
                     <h2>1. 현장 작업지시서 (Work Orders)</h2>
                     <table>
                         <thead>
-                            <tr><th>지시 ID</th><th>주문번호</th><th>거래처명</th><th>품목명(요약)</th><th>생산 목표량</th><th>상태</th><th>관리</th></tr>
+                            <tr><th>지시 ID</th><th>주문번호</th><th>거래처명</th><th>품목명(요약)</th><th>생산 목표량</th><th>상태</th><th>출력</th><th>관리</th></tr>
                         </thead>
-                        <tbody id="workOrderTableBody"><tr><td colspan="7" style="text-align: center;">발행된 작업지시서가 없습니다.</td></tr></tbody>
+                        <tbody id="workOrderTableBody"><tr><td colspan="8" style="text-align: center;">발행된 작업지시서가 없습니다.</td></tr></tbody>
                     </table>
                 </div>
                 <div class="card">
@@ -401,7 +400,6 @@ def dashboard():
                 </div>
             </div>
 
-            <!-- [탭 3] 원료 마스터 관리 탭 -->
             <div id="materials-tab" class="tab-content">
                 <div class="card">
                     <h1>원료 마스터 관리 (Raw Material Master)</h1>
@@ -446,7 +444,6 @@ def dashboard():
                 </div>
             </div>
 
-            <!-- [탭 4] KT&G 상품 품목리스트 탭 -->
             <div id="ktng-tab" class="tab-content">
                 <div class="card">
                     <h1>KT&G 상품 품목리스트</h1>
@@ -481,7 +478,6 @@ def dashboard():
                 </div>
             </div>
 
-            <!-- [탭 5] BOM 조회 및 관리 탭 -->
             <div id="bom-tab" class="tab-content">
                 <div class="card">
                     <h1>BOM(소요량) 조회 및 관리</h1>
@@ -515,14 +511,13 @@ def dashboard():
                                 <th>관리</th>
                             </tr>
                         </thead>
-                        <tbody id="bomMaterialTableBody"><tr><td colspan="10" style="text-align: center;">데이터를 불러오는 중...</td></tr></tbody>
+                        <tbody id="bomMaterialTableBody"><tr><td colspan="10" style="text-align: center;">원료 데이터를 불러오는 중...</td></tr></tbody>
                     </table>
                     <div class="pagination" id="bomPaginationContainer"></div>
                 </div>
             </div>
         </main>
 
-        <!-- 모달들 -->
         <div id="yearlyPreModal" class="modal-overlay">
             <div class="modal-content">
                 <div class="modal-header">
@@ -1367,7 +1362,7 @@ def dashboard():
                     const tbody = document.getElementById('workOrderTableBody');
                     tbody.innerHTML = '';
                     if (!data.data || data.data.length === 0) {
-                        tbody.innerHTML = '<tr><td colspan="7" style="text-align: center;">발행된 작업지시서가 없습니다.</td></tr>';
+                        tbody.innerHTML = '<tr><td colspan="8" style="text-align: center;">발행된 작업지시서가 없습니다.</td></tr>';
                         return;
                     }
                     data.data.forEach(row => {
@@ -1379,10 +1374,114 @@ def dashboard():
                             <td>${row.product_summary}</td>
                             <td>${row.target_qty.toLocaleString(undefined, {minimumFractionDigits: 3})} kg</td>
                             <td><span class="badge badge-success">${row.status}</span></td>
+                            <td><button class="btn-action" onclick="printWorkOrder(${row.work_order_id})" style="background:#10b981;">인쇄</button></td>
                             <td><button class="btn-delete" onclick="deleteWorkOrder(${row.work_order_id})" style="padding:4px 8px;">취소</button></td>
                         `;
                         tbody.appendChild(tr);
                     });
+                });
+            }
+
+            function printWorkOrder(woId) {
+                fetch(`/api/v1/work-orders/${woId}/print`)
+                .then(res => res.json())
+                .then(data => {
+                    if (data.status !== "SUCCESS") {
+                        alert("작업지시서 정보를 불러오지 못했습니다.");
+                        return;
+                    }
+                    const wo = data.work_order;
+                    const items = data.bom_items;
+
+                    let itemsHtml = '';
+                    if (items.length === 0) {
+                        itemsHtml = '<tr><td colspan="5" style="text-align:center;">등록된 BOM 구성 원료가 없습니다. (BOM을 먼저 등록해 주세요)</td></tr>';
+                    } else {
+                        items.forEach((item, idx) => {
+                            const reqQty = item.qty * wo.target_qty;
+                            itemsHtml += `
+                                <tr>
+                                    <td style="border:1px solid #333; padding:8px; text-align:center;">${idx+1}</td>
+                                    <td style="border:1px solid #333; padding:8px;">${item.material_code}</td>
+                                    <td style="border:1px solid #333; padding:8px;">${item.material_name}</td>
+                                    <td style="border:1px solid #333; padding:8px; text-align:right;">${reqQty.toLocaleString(undefined, {minimumFractionDigits: 3})} ${item.unit || 'KG'}</td>
+                                    <td style="border:1px solid #333; padding:8px; text-align:center;">[  ] 양호 / [  ] 불량</td>
+                                </tr>
+                            `;
+                        });
+                    }
+
+                    const printWin = window.open('', '_blank', 'width=800,height=900');
+                    printWin.document.write(`
+                        <html>
+                        <head>
+                            <title>현장 작업지시서 - WO-${wo.work_order_id}</title>
+                            <style>
+                                body { font-family: 'Malgun Gothic', sans-serif; padding: 20px; color: #000; }
+                                h1 { text-align: center; font-size: 24px; margin-bottom: 5px; border-bottom: 2px solid #000; padding-bottom: 10px; }
+                                .info-table, .bom-table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 14px; }
+                                .info-table th, .info-table td { border: 1px solid #333; padding: 8px 12px; text-align: left; }
+                                .info-table th { background: #f0f0f0; width: 20%; }
+                                .section-title { margin-top: 25px; font-size: 16px; font-weight: bold; }
+                                .footer { margin-top: 40px; display: flex; justify-content: space-between; text-align: center; font-size: 14px; }
+                                @media print {
+                                    .no-print { display: none; }
+                                }
+                            </style>
+                        </head>
+                        <body>
+                            <div class="no-print" style="text-align: right; margin-bottom: 15px;">
+                                <button onclick="window.print()" style="padding: 10px 20px; background: #0077FF; color: #fff; border: none; font-size: 14px; cursor: pointer; border-radius: 4px;">인쇄하기</button>
+                            </div>
+                            <h1>아로마리소스 현장 작업지시서</h1>
+                            <table class="info-table">
+                                <tr>
+                                    <th>지시서 번호</th>
+                                    <td><b>WO-${wo.work_order_id}</b></td>
+                                    <th>주문 번호</th>
+                                    <td>${wo.order_no}</td>
+                                </tr>
+                                <tr>
+                                    <th>거래처명</th>
+                                    <td>${wo.client_name}</td>
+                                    <th>생산 목표량</th>
+                                    <td><b>${wo.target_qty.toLocaleString(undefined, {minimumFractionDigits: 3})} KG</b></td>
+                                </tr>
+                                <tr>
+                                    <th>생산 품목</th>
+                                    <td colspan="3"><b>${wo.product_summary}</b></td>
+                                </tr>
+                                <tr>
+                                    <th>진행 상태</th>
+                                    <td colspan="3">${wo.status}</td>
+                                </tr>
+                            </table>
+
+                            <div class="section-title">2. BOM 투입 원료 소요량 산정 내역</div>
+                            <table class="bom-table">
+                                <thead>
+                                    <tr style="background: #f0f0f0;">
+                                        <th style="border:1px solid #333; padding:8px; width:10%;">순번</th>
+                                        <th style="border:1px solid #333; padding:8px; width:20%;">원료코드</th>
+                                        <th style="border:1px실선 #333; padding:8px; width:35%;">원료명</th>
+                                        <th style="border:1px solid #333; padding:8px; width:20%;">소요 중량</th>
+                                        <th style="border:1px solid #333; padding:8px; width:15%;">검수 확인</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${itemsHtml}
+                                </tbody>
+                            </table>
+
+                            <div class="footer">
+                                <div>담당 책임자: (서명 또는 인)</div>
+                                <div>현장 작업자: (서명 또는 인)</div>
+                                <div>발행일시: ${new Date().toLocaleDateString()}</div>
+                            </div>
+                        </body>
+                        </html>
+                    `);
+                    printWin.document.close();
                 });
             }
 
