@@ -1472,34 +1472,34 @@ def dashboard():
             }
 
  function submitLog(event) {
-            event.preventDefault();
-            const payload = {
-                batch_id: document.getElementById('batch_id').value,
-                manifold_id: document.getElementById('manifold_id').value,
-                input_qty: parseFloat(document.getElementById('input_qty').value) || 0,
-                operator_id: document.getElementById('operator_id').value,
-                product_code: document.getElementById('log_product_code').value.trim()
-            };
-            
-            fetch('/api/v1/production/batches/log', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            })
-            .then(res => res.json())
-            .then(data => {
-                if (data.status === "SUCCESS") {
-                    let msg = data.message;
-                    if (data.deduction && data.deduction.length > 0) {
-                        msg += "\n[BOM 재고 자동 차감 내역]\n" + data.deduction.join(", ");
-                    }
-                    alert(msg);
-                    loadLogs();
-                } else {
-                    alert("전송 실패");
-                }
-            });
+    event.preventDefault();
+    const payload = {
+        batch_id: document.getElementById('batch_id').value,
+        manifold_id: document.getElementById('manifold_id').value,
+        input_qty: parseFloat(document.getElementById('input_qty').value) || 0,
+        operator_id: document.getElementById('operator_id').value,
+        product_code: document.getElementById('log_product_code').value.trim()
+    };
+    
+    fetch('/api/v1/production/batches/log', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.status === "SUCCESS") {
+            let msg = data.message;
+            if (data.deduction && data.deduction.length > 0) {
+                msg += "\n[BOM 재고 자동 차감 내역]\n" + data.deduction.join(", ");
+            }
+            alert(msg);
+            loadLogs();
+        } else {
+            alert("전송 실패");
         }
+    });
+}
             function loadLogs() {
                 fetch('/api/v1/production/batches').then(res => res.json()).then(data => {
                     const tbody = document.getElementById('logTableBody');
