@@ -161,6 +161,7 @@ def auto_seed_materials():
 
                     cat = sheet_cat_override if sheet_cat_override else get_auto_category(material_code)
 
+                    # 스마트 업서트(Upsert) 적용: 기존에 입력한 작업 데이터(예계량, 재고, 판매수량 등)는 유지하고 마스터 정보만 병합
                     existing = db.query(MaterialMaster).filter(MaterialMaster.material_code == material_code).first()
                     if not existing:
                         new_material = MaterialMaster(
@@ -179,6 +180,12 @@ def auto_seed_materials():
                             lot_stock="[]"
                         )
                         db.add(new_material)
+                    else:
+                        if name_kr: existing.material_name_kr = name_kr
+                        if name_en: existing.material_name_en = name_en
+                        if cas_no: existing.cas_no = cas_no
+                        if supplier: existing.supplier = supplier
+                        if sheet_cat_override: existing.category = sheet_cat_override
             db.commit()
         except Exception as e:
             print(f"[Auto-Seed Error for {file_path}] {e}")
@@ -1181,7 +1188,6 @@ def dashboard():
                 document.getElementById('bomModal').style.display = 'none';
             }
 
-            // BOM 행 추가 시 원료코드 입력에 자동완성 룩업 연결
             function addBomItemRow(code='', name='', qty='', unit='KG', cas='') {
                 const tbody = document.getElementById('modalBomItemsTableBody');
                 const tr = document.createElement('tr');
@@ -1295,7 +1301,8 @@ def dashboard():
                 document.getElementById('new_name_kr').value = '';
                 document.getElementById('new_category').value = '원재료';
                 document.getElementById('new_remark').value = '';
-                document.getElementById('duplicateNameSuggestions').style.display = 'none';
+                const sugg = document.getElementById('duplicateNameSuggestions');
+                if (sugg) sugg.style.display = 'none';
                 document.getElementById('createModal').style.display = 'flex';
             }
 
@@ -1323,7 +1330,7 @@ def dashboard():
                             document.getElementById('duplicateNameSuggestions').style.display = 'none';
                         } else {
                             const select = document.getElementById('suggestedNamesSelect');
-                            select.innerHTML = '<option value="">-- 일치하는 제품 선택 (중복 항목) --</option>';
+                            select.innerHTML = '<option value="">-- 일치하거나 유사한 제품 선택 (중복 항목) --</option>';
                             matches.forEach(m => {
                                 const opt = document.createElement('option');
                                 opt.value = JSON.stringify(m);
