@@ -186,7 +186,6 @@ def auto_seed_materials():
                         )
                         db.add(new_material)
                     else:
-                        # 기존 데이터의 사용자가 입력한 수량(pre_weighing, stock_qty 등)은 절대 덮어쓰지 않고 메타데이터만 갱신
                         if name_kr and not existing.material_name_kr: existing.material_name_kr = name_kr
                         if name_en and not existing.material_name_en: existing.material_name_en = name_en
                         if cas_no and not existing.cas_no: existing.cas_no = cas_no
@@ -1395,23 +1394,26 @@ def dashboard():
 
                     let itemsHtml = '';
                     if (items.length === 0) {
-                        itemsHtml = '<tr><td colspan="5" style="text-align:center;">등록된 BOM 구성 원료가 없습니다. (BOM을 먼저 등록해 주세요)</td></tr>';
+                        itemsHtml = '<tr><td colspan="7" style="text-align:center; padding:15px;">등록된 BOM 구성 원료가 없습니다. (BOM을 먼저 등록해 주세요)</td></tr>';
                     } else {
                         items.forEach((item, idx) => {
                             const reqQty = item.qty * wo.target_qty;
+                            const stockQty = item.stock_qty || 0;
                             itemsHtml += `
                                 <tr>
                                     <td style="border:1px solid #333; padding:8px; text-align:center;">${idx+1}</td>
-                                    <td style="border:1px solid #333; padding:8px;">${item.material_code}</td>
+                                    <td style="border:1px solid #333; padding:8px; text-align:center;">${item.category || '원재료'}</td>
+                                    <td style="border:1px solid #333; padding:8px; text-align:center;">${item.material_code}</td>
                                     <td style="border:1px solid #333; padding:8px;">${item.material_name}</td>
-                                    <td style="border:1px solid #333; padding:8px; text-align:right;">${reqQty.toLocaleString(undefined, {minimumFractionDigits: 3})} ${item.unit || 'KG'}</td>
-                                    <td style="border:1px solid #333; padding:8px; text-align:center;">[  ] 양호 / [  ] 불량</td>
+                                    <td style="border:1px solid #333; padding:8px; text-align:right;">${stockQty.toLocaleString(undefined, {minimumFractionDigits: 3})} ${item.unit || 'KG'}</td>
+                                    <td style="border:1px solid #333; padding:8px; text-align:right; font-weight:bold;">${reqQty.toLocaleString(undefined, {minimumFractionDigits: 3})} ${item.unit || 'KG'}</td>
+                                    <td style="border:1px solid #333; padding:8px; text-align:center;"></td>
                                 </tr>
                             `;
                         });
                     }
 
-                    const printWin = window.open('', '_blank', 'width=800,height=900');
+                    const printWin = window.open('', '_blank', 'width=950,height=900');
                     printWin.document.write(`
                         <html>
                         <head>
@@ -1419,13 +1421,14 @@ def dashboard():
                             <style>
                                 body { font-family: 'Malgun Gothic', sans-serif; padding: 20px; color: #000; }
                                 h1 { text-align: center; font-size: 24px; margin-bottom: 5px; border-bottom: 2px solid #000; padding-bottom: 10px; }
-                                .info-table, .bom-table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 14px; }
-                                .info-table th, .info-table td { border: 1px solid #333; padding: 8px 12px; text-align: left; }
-                                .info-table th { background: #f0f0f0; width: 20%; }
-                                .section-title { margin-top: 25px; font-size: 16px; font-weight: bold; }
+                                .info-table, .bom-table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 13px; }
+                                .info-table th, .info-table td { border: 1px solid #333; padding: 8px 10px; text-align: left; }
+                                .info-table th { background: #f0f0f0; width: 15%; text-align: center; }
+                                .section-title { margin-top: 25px; font-size: 15px; font-weight: bold; }
                                 .footer { margin-top: 40px; display: flex; justify-content: space-between; text-align: center; font-size: 14px; }
                                 @media print {
                                     .no-print { display: none; }
+                                    input { border: none !important; background: transparent !important; }
                                 }
                             </style>
                         </head>
@@ -1449,23 +1452,29 @@ def dashboard():
                                 </tr>
                                 <tr>
                                     <th>생산 품목</th>
-                                    <td colspan="3"><b>${wo.product_summary}</b></td>
+                                    <td><b>${wo.product_summary}</b></td>
+                                    <th>작업자</th>
+                                    <td><input type="text" placeholder="작업자 성명 입력" style="width:100%; border:1px solid #ccc; padding:4px; font-size:13px;"></td>
                                 </tr>
                                 <tr>
-                                    <th>진행 상태</th>
-                                    <td colspan="3">${wo.status}</td>
+                                    <th>지시 상태</th>
+                                    <td>${wo.status}</td>
+                                    <th>작업시간</th>
+                                    <td><input type="text" placeholder="예: 09:00 ~ 12:00" style="width:100%; border:1px solid #ccc; padding:4px; font-size:13px;"></td>
                                 </tr>
                             </table>
 
                             <div class="section-title">2. BOM 투입 원료 소요량 산정 내역</div>
                             <table class="bom-table">
                                 <thead>
-                                    <tr style="background: #f0f0f0;">
-                                        <th style="border:1px solid #333; padding:8px; width:10%;">순번</th>
-                                        <th style="border:1px solid #333; padding:8px; width:20%;">원료코드</th>
-                                        <th style="border:1px실선 #333; padding:8px; width:35%;">원료명</th>
-                                        <th style="border:1px solid #333; padding:8px; width:20%;">소요 중량</th>
-                                        <th style="border:1px solid #333; padding:8px; width:15%;">검수 확인</th>
+                                    <tr style="background: #f0f0f0; text-align: center;">
+                                        <th style="border:1px solid #333; padding:8px; width:6%;">순번</th>
+                                        <th style="border:1px solid #333; padding:8px; width:14%;">원료 특성</th>
+                                        <th style="border:1px solid #333; padding:8px; width:16%;">원료코드</th>
+                                        <th style="border:1px solid #333; padding:8px; width:28%;">원료명</th>
+                                        <th style="border:1px solid #333; padding:8px; width:13%;">재고량</th>
+                                        <th style="border:1px solid #333; padding:8px; width:13%;">소요량</th>
+                                        <th style="border:1px solid #333; padding:8px; width:10%;">사용 lot</th>
                                     </tr>
                                 </thead>
                                 <tbody>
