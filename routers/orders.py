@@ -3,6 +3,7 @@ import csv
 import io
 from fastapi import APIRouter, HTTPException, Response
 from pydantic import BaseModel
+from database import SessionLocal, MaterialMaster
 
 router = APIRouter(prefix="/api/v1", tags=["Orders & Production"])
 
@@ -21,6 +22,7 @@ class BatchLogRequest(BaseModel):
     manifold_id: str
     input_qty: float
     operator_id: str
+    product_code: str = None  # BOM 연동을 위한 생산 품목코드
 
 @router.post("/orders")
 def create_order(data: OrderRequest):
@@ -113,14 +115,51 @@ def delete_work_order(work_order_id: int):
 def log_batch_input(data: BatchLogRequest):
     try:
         conn = sqlite3.connect('erp_factory.db')
+        conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
+        
+        # 1. 배치 투입 로그 기록
         cursor.execute('''
             INSERT INTO batch_logs (batch_id, manifold_id, input_qty, operator_id, status)
             VALUES (?, ?, ?, ?, ?)
         ''', (data.batch_id, data.manifold_id, data.input_qty, data.operator_id, "SUCCESS"))
+        
+        # 2. BOM 기반 원료 재고 자동 차감 연동
+        deduction_details = []
+        if data.product_code:
+            cursor.execute("SELECT bom_id, production_qty FROM bom_headers WHERE product_code = ? ORDER BY bom_id DESC LIMIT 1", (data.product_code,))
+            bom_header = cursor.fetchone()
+            
+            if bom_header:
+                bom_id = bom_header['bom_id']
+                base_prod_qty = bom_header['production_qty'] or 1.0
+                
+                cursor.execute("SELECT material_code, qty FROM bom_items WHERE bom_id = ?", (bom_id,))
+                bom_items = cursor.fetchall()
+                
+                db_mat = SessionLocal()
+                for item in bom_items:
+                    mat_code = item['material_code']
+                    unit_qty = item['qty'] or 0.0
+                    consumed_qty = unit_qty * (data.input_qty / base_prod_qty)
+                    
+                    material = db_mat.query(MaterialMaster).filter(MaterialMaster.material_code == mat_code).first()
+                    if material:
+                        current_stock = material.stock_qty or 0.0
+                        material.stock_qty = max(0.0, current_stock - consumed_qty)
+                        deduction_details.append(f"{mat_code}: -{consumed_qty:.3f}kg")
+                
+                db_mat.commit()
+                db_mat.close()
+        
         conn.commit()
         conn.close()
-        return {"status": "SUCCESS", "message": "저장되었습니다.", "data": data}
+        return {
+            "status": "SUCCESS", 
+            "message": "생산 데이터 저장 및 BOM 재고 자동 차감이 완료되었습니다.", 
+            "data": data,
+            "deduction": deduction_details
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
