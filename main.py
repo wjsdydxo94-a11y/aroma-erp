@@ -1,8 +1,8 @@
 import sqlite3
 import glob
 import pandas as pd
-from fastapi import FastAPI
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, UploadFile, File
+from fastapi.responses import HTMLResponse, FileResponse
 import os
 import shutil
 from datetime import datetime
@@ -15,6 +15,24 @@ app = FastAPI()
 app.include_router(materials.router)
 app.include_router(orders.router)
 app.include_router(boms.router)
+
+# 데이터베이스 백업 다운로드 및 복구 API (데이터 유실 방지 안전장치)
+@app.get("/api/v1/system/backup")
+def download_backup():
+    db_file = "erp_factory.db"
+    if os.path.exists(db_file):
+        return FileResponse(db_file, filename=f"erp_factory_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db")
+    return {"status": "FAIL", "message": "데이터베이스 파일을 찾을 수 없습니다."}
+
+@app.post("/api/v1/system/restore")
+async def restore_backup(file: UploadFile = File(...)):
+    try:
+        contents = await file.read()
+        with open("erp_factory.db", "wb") as f:
+            f.write(contents)
+        return {"status": "SUCCESS", "message": "데이터베이스가 성공적으로 복구되었습니다. 페이지를 새로고침 해주세요."}
+    except Exception as e:
+        return {"status": "FAIL", "message": f"복구 실패: {e}"}
 
 def get_auto_category(code: str) -> str:
     code = str(code).strip()
@@ -93,7 +111,7 @@ def init_db():
             product_code TEXT,
             product_name TEXT,
             process_code TEXT,
-            bom_version TEXT,
+            bom_version TEXT DEFAULT 'v1.0',
             is_default INTEGER DEFAULT 1,
             production_qty REAL
         )
@@ -108,7 +126,7 @@ def init_db():
             unit TEXT,
             cas_no TEXT,
             location TEXT,
-            item_bom_version TEXT,
+            item_bom_version TEXT DEFAULT 'v1.0',
             FOREIGN KEY (bom_id) REFERENCES bom_headers (bom_id)
         )
     ''')
@@ -278,13 +296,13 @@ def dashboard():
             .pagination button.active { background: #0077FF; color: white; border-color: #0077FF; }
             .pagination button:disabled { background: #f1f5f9; color: #94a3b8; cursor: not-allowed; }
             .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); justify-content: center; align-items: center; z-index: 1000; }
-            .modal-content { background: white; padding: 25px; border-radius: 10px; width: 550px; max-height: 90vh; overflow-y: auto; box-shadow: 0 4px 20px rgba(0,0,0,0.2); }
+            .modal-content { background: white; padding: 25px; border-radius: 10px; width: 900px; max-height: 90vh; overflow-y: auto; box-shadow: 0 4px 20px rgba(0,0,0,0.2); }
             .modal-header { font-size: 16px; font-weight: bold; margin-bottom: 15px; border-bottom: 2px solid #cbd5e1; padding-bottom: 8px; display: flex; justify-content: space-between; align-items: center; color: #1e293b; }
             .modal-close { cursor: pointer; font-size: 18px; color: #64748b; }
             .modal-body .form-group { margin-bottom: 12px; }
             .modal-body label { display: block; font-size: 12px; font-weight: 600; color: #475569; margin-bottom: 4px; }
             .modal-body input, .modal-body select { width: 100%; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 13px; box-sizing: border-box; }
-            .modal-footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+            .modal-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 20px; }
         </style>
     </head>
     <body>
@@ -315,7 +333,16 @@ def dashboard():
             </details>
             <details open>
               <summary>원료 마스터 관리</summary>
-              <ul><li><a onclick="switchTab('materials-tab')">원료 마스터 통합 관리</a></li></ul>
+              <ul>
+                <li><a onclick="switchTab('materials-tab')">원료 마스터 통합 관리</a></li>
+                <li style="margin-top:10px; border-top:1px solid rgba(255,255,255,0.1); padding-top:8px;">
+                    <a onclick="downloadBackup()" style="color:#22c55e;">💾 DB 백업 다운로드</a>
+                </li>
+                <li>
+                    <label style="color:#38bdf8; cursor:pointer; display:block; padding:7px 12px; font-size:12.5px;" for="restoreFile">📂 DB 복구 업로드</label>
+                    <input type="file" id="restoreFile" style="display:none;" onchange="uploadRestore(this)">
+                </li>
+              </ul>
             </details>
             <details open>
               <summary>생산 및 배치</summary>
@@ -569,28 +596,52 @@ def dashboard():
             </div>
         </div>
 
+        <!-- 고도화된 BOM 등록/관리 모달 -->
         <div id="bomModal" class="modal-overlay">
-            <div class="modal-content" style="width: 850px;">
+            <div class="modal-content" style="width: 950px;">
                 <div class="modal-header">
                     <span id="modalBomTitle">품목 BOM 관리</span>
                     <span class="modal-close" onclick="closeBomModal()">&times;</span>
                 </div>
                 <div class="modal-body">
                     <input type="hidden" id="bom_target_code">
-                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-                        <p style="font-size: 13px; color: #475569;">선택한 품목의 구성 원료 및 투입량을 입력하거나 수정하세요.</p>
-                        <button type="button" class="btn-action" onclick="addBomItemRow()" style="padding: 6px 12px;">+ 원료 행 추가</button>
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; background:#f1f5f9; padding:10px; border-radius:6px;">
+                        <div style="display:flex; gap:10px; align-items:center;">
+                            <label style="font-weight:bold; font-size:13px; margin:0;">BOM 버전:</label>
+                            <select id="bomVersionSelect" onchange="changeBomVersion()" style="padding:6px; font-weight:bold; width:120px;"></select>
+                            <button type="button" class="btn-action" onclick="createNewBomVersion()" style="background:#10b981; padding:6px 12px;">+ 새 버전 생성</button>
+                        </div>
+                        <div style="display:flex; gap:10px; align-items:center;">
+                            <label class="btn-export" style="cursor:pointer; margin:0; padding:6px 12px; font-size:12px;" for="bomExcelFile">📁 엑셀 일괄 업로드</label>
+                            <input type="file" id="bomExcelFile" style="display:none;" onchange="uploadBomExcel(this)">
+                            <button type="button" class="btn-action" onclick="addBomItemRow()" style="padding: 6px 12px;">+ 원료 행 추가</button>
+                        </div>
                     </div>
-                    <div style="max-height: 350px; overflow-y: auto;">
+                    <div style="max-height: 380px; overflow-y: auto;">
                         <table>
-                            <thead><tr><th>원료코드</th><th>원료명</th><th>투입수량</th><th>단위</th><th>CAS No</th><th>관리</th></tr></thead>
+                            <thead>
+                                <tr>
+                                    <th style="width: 50px; text-align:center;">순번</th>
+                                    <th>원료코드</th>
+                                    <th>원료명</th>
+                                    <th style="width: 120px;">투입수량</th>
+                                    <th style="width: 80px;">단위</th>
+                                    <th>CAS No</th>
+                                    <th style="width: 60px; text-align:center;">관리</th>
+                                </tr>
+                            </thead>
                             <tbody id="modalBomItemsTableBody"></tbody>
                         </table>
                     </div>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn-order" onclick="saveBomData()" style="padding: 8px 16px;">BOM 저장</button>
-                    <button type="button" class="btn-delete" onclick="closeBomModal()" style="padding: 8px 16px; background:#64748b;">닫기</button>
+                    <div id="bomTotalQtyContainer" style="font-weight:bold; font-size:14px; color:#1e293b;">
+                        총 투입 수량: <span id="bomTotalQty" style="color:#0077FF;">0.0000</span> KG
+                    </div>
+                    <div style="display:flex; gap:10px;">
+                        <button type="button" class="btn-order" onclick="saveBomData()" style="padding: 8px 16px;">BOM 저장</button>
+                        <button type="button" class="btn-delete" onclick="closeBomModal()" style="padding: 8px 16px; background:#64748b;">닫기</button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -673,6 +724,28 @@ def dashboard():
             let currentCategory = '';
             let currentBomSearch = '';
             let currentMaterialMap = {};
+            let currentBomProductCode = '';
+            let currentBomProductName = '';
+
+            function downloadBackup() {
+                window.location.href = '/api/v1/system/backup';
+            }
+
+            function uploadRestore(inputEl) {
+                if (!inputEl.files || inputEl.files.length === 0) return;
+                if (!confirm("백업 파일로 데이터베이스를 복구하시겠습니까? 기존 데이터가 덮어씌워질 수 있습니다.")) return;
+                const formData = new FormData();
+                formData.append("file", inputEl.files[0]);
+                fetch('/api/v1/system/restore', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(res => res.json())
+                .then(data => {
+                    alert(data.message);
+                    if (data.status === "SUCCESS") location.reload();
+                });
+            }
 
             function switchTab(tabId) {
                 document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
@@ -729,9 +802,7 @@ def dashboard():
                         loadMaterials(currentPage);
                         loadKtngMaterials(ktngCurrentPage);
                         loadBomMaterials(bomCurrentPage);
-                    } else {
-                        alert("삭제 실패");
-                    }
+                    } else { alert("삭제 실패"); }
                 });
             }
 
@@ -753,9 +824,7 @@ def dashboard():
                         alert(data.message);
                         loadBomMaterials(bomCurrentPage);
                         loadMaterials(currentPage);
-                    } else {
-                        alert("삭제 실패");
-                    }
+                    } else { alert("삭제 실패"); }
                 });
             }
 
@@ -1030,18 +1099,84 @@ def dashboard():
             }
 
             function openBomModal(productCode, productName) {
+                currentBomProductCode = productCode;
+                currentBomProductName = productName;
                 document.getElementById('modalBomTitle').innerText = `품목 [${productCode}] ${productName} - BOM 등록 및 관리`;
                 document.getElementById('bom_target_code').value = productCode;
-                document.getElementById('modalBomItemsTableBody').innerHTML = '<tr><td colspan="6" style="text-align: center;">불러오는 중...</td></tr>';
+                loadBomDataForVersion(productCode, 'v1.0');
+            }
+
+            function loadBomDataForVersion(productCode, version) {
+                document.getElementById('modalBomItemsTableBody').innerHTML = '<tr><td colspan="7" style="text-align: center;">불러오는 중...</td></tr>';
                 document.getElementById('bomModal').style.display = 'flex';
-                fetch(`/api/v1/boms?product_code=${encodeURIComponent(productCode)}&version=1`)
+                fetch(`/api/v1/boms?product_code=${encodeURIComponent(productCode)}&version=${encodeURIComponent(version)}`)
                 .then(res => res.json())
                 .then(data => {
+                    const versions = data.versions || ['v1.0'];
+                    const select = document.getElementById('bomVersionSelect');
+                    select.innerHTML = '';
+                    versions.forEach(v => {
+                        const opt = document.createElement('option');
+                        opt.value = v;
+                        opt.innerText = v;
+                        if (v === version) opt.selected = true;
+                        select.appendChild(opt);
+                    });
+
                     const tbody = document.getElementById('modalBomItemsTableBody');
                     tbody.innerHTML = '';
                     const items = data.items || [];
                     if (items.length === 0) { addBomItemRow(); } 
                     else { items.forEach(item => addBomItemRow(item.material_code, item.material_name, item.qty, item.unit, item.cas_no)); }
+                    calculateBomTotal();
+                });
+            }
+
+            function changeBomVersion() {
+                const ver = document.getElementById('bomVersionSelect').value;
+                loadBomDataForVersion(currentBomProductCode, ver);
+            }
+
+            function createNewBomVersion() {
+                const newVer = prompt("생성할 새 BOM 버전을 입력하세요 (예: v2.0):");
+                if (!newVer) return;
+                const select = document.getElementById('bomVersionSelect');
+                let exists = false;
+                for (let opt of select.options) {
+                    if (opt.value === newVer) exists = true;
+                }
+                if (!exists) {
+                    const opt = document.createElement('option');
+                    opt.value = newVer;
+                    opt.innerText = newVer;
+                    select.appendChild(opt);
+                }
+                select.value = newVer;
+                document.getElementById('modalBomItemsTableBody').innerHTML = '';
+                addBomItemRow();
+                calculateBomTotal();
+            }
+
+            function uploadBomExcel(inputEl) {
+                if (!inputEl.files || inputEl.files.length === 0) return;
+                const file = inputEl.files[0];
+                const version = document.getElementById('bomVersionSelect').value;
+                const formData = new FormData();
+                formData.append("file", file);
+                formData.append("product_code", currentBomProductCode);
+                formData.append("bom_version", version);
+
+                fetch('/api/v1/boms/upload-excel', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(res => res.json())
+                .then(data => {
+                    alert(data.message);
+                    if (data.status === "SUCCESS") {
+                        loadBomDataForVersion(currentBomProductCode, version);
+                    }
+                    inputEl.value = '';
                 });
             }
 
@@ -1054,14 +1189,33 @@ def dashboard():
                 const tr = document.createElement('tr');
                 tr.className = 'bom-item-row';
                 tr.innerHTML = `
+                    <td class='row-idx' style="text-align:center; font-weight:bold; color:#475569;"></td>
                     <td><input type="text" class="b-code" value="${code}" placeholder="원료코드" style="padding:4px; width:100%;" oninput="onBomCodeInput(this)"></td>
                     <td><input type="text" class="b-name" value="${name}" placeholder="원료명" style="padding:4px; width:100%;"></td>
-                    <td><input type="number" step="0.001" class="b-qty" value="${qty}" placeholder="수량" style="padding:4px; width:100%;"></td>
-                    <td><input type="text" class="b-unit" value="${unit}" style="padding:4px; width:100%;"></td>
+                    <td><input type="number" step="0.0001" class="b-qty" value="${qty}" placeholder="수량" style="padding:4px; width:100%; text-align:right;" oninput="calculateBomTotal()"></td>
+                    <td><input type="text" class="b-unit" value="${unit}" style="padding:4px; width:100%; text-align:center;"></td>
                     <td><input type="text" class="b-cas" value="${cas}" placeholder="CAS No" style="padding:4px; width:100%;"></td>
-                    <td><button type="button" class="btn-delete" onclick="this.closest('tr').remove()" style="padding:4px 8px;">삭제</button></td>
+                    <td style="text-align:center;"><button type="button" class="btn-delete" onclick="this.closest('tr').remove(); updateRowIndexes(); calculateBomTotal();" style="padding:4px 8px;">삭제</button></td>
                 `;
                 tbody.appendChild(tr);
+                updateRowIndexes();
+                calculateBomTotal();
+            }
+
+            function updateRowIndexes() {
+                const rows = document.querySelectorAll('.bom-item-row');
+                rows.forEach((row, idx) => {
+                    row.querySelector('.row-idx').innerText = idx + 1;
+                });
+            }
+
+            function calculateBomTotal() {
+                const qtyInputs = document.querySelectorAll('.b-qty');
+                let total = 0;
+                qtyInputs.forEach(input => {
+                    total += parseFloat(input.value) || 0;
+                });
+                document.getElementById('bomTotalQty').innerText = total.toFixed(4);
             }
 
             function onBomCodeInput(inputEl) {
@@ -1082,7 +1236,8 @@ def dashboard():
             }
 
             function saveBomData() {
-                const productCode = document.getElementById('bom_target_code').value;
+                const productCode = currentBomProductCode;
+                const version = document.getElementById('bomVersionSelect').value;
                 const rows = document.querySelectorAll('.bom-item-row');
                 const items = [];
                 rows.forEach(row => {
@@ -1093,7 +1248,7 @@ def dashboard():
                     const cas = row.querySelector('.b-cas').value.trim();
                     if (code) { items.push({ material_code: code, material_name: name, qty: qty, unit: unit, cas_no: cas, location: '' }); }
                 });
-                const payload = { product_code: productCode, product_name: productCode, bom_version: "1", items: items };
+                const payload = { product_code: productCode, product_name: productCode, bom_version: version, items: items };
                 fetch('/api/v1/boms/save', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -1102,7 +1257,7 @@ def dashboard():
                 .then(res => res.json())
                 .then(data => {
                     if (data.status === "SUCCESS") {
-                        alert("BOM이 성공적으로 저장되었습니다.");
+                        alert(data.message);
                         closeBomModal();
                     } else { alert("저장 실패"); }
                 });
