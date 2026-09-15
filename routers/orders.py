@@ -86,3 +86,28 @@ def delete_work_order(work_order_id: int):
     conn.commit()
     conn.close()
     return {"status": "SUCCESS", "message": "작업지시가 취소되었습니다."}
+
+@router.get("/work-orders/{work_order_id}/print")
+def print_work_order(work_order_id: int):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM work_orders WHERE work_order_id = ?", (work_order_id,))
+    wo = cursor.fetchone()
+    if not wo:
+        conn.close()
+        raise HTTPException(status_code=404, detail="작업지시서를 찾을 수 없습니다.")
+    
+    # product_summary 또는 연동된 품목의 BOM 아이템 조회 시도
+    cursor.execute("SELECT * FROM bom_headers WHERE product_code = ? OR product_name = ?", (wo["product_summary"], wo["product_summary"]))
+    bom_h = cursor.fetchone()
+    items = []
+    if bom_h:
+        cursor.execute("SELECT * FROM bom_items WHERE bom_id = ?", (bom_h["bom_id"],))
+        items = [dict(row) for row in cursor.fetchall()]
+    
+    conn.close()
+    return {
+        "status": "SUCCESS",
+        "work_order": dict(wo),
+        "bom_items": items
+    }
