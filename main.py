@@ -320,7 +320,7 @@ def dashboard():
             <details open>
               <summary>생산 및 배치</summary>
               <ul>
-                <li><a onclick="switchTab('orders-tab')">작업 지시서 및 투입이력</a></li>
+                <li><a onclick="switchTab('work-orders-tab')">작업 지시서 및 투입이력</a></li>
                 <li><a onclick="switchTab('bom-tab')">BOM 조회 및 관리</a></li>
               </ul>
             </details>
@@ -328,10 +328,11 @@ def dashboard():
         </aside>
 
         <main class="main-content">
+            <!-- [탭 1] 주문서 관리 탭 -->
             <div id="orders-tab" class="tab-content active">
                 <div class="card">
-                    <h1>아로마리소스 통합 ERP 시스템</h1>
-                    <p>영업 주문 관리, 작업지시 발행 및 현장 생산 공정 통합 제어 패널</p>
+                    <h1>주문서 관리 (Order Management)</h1>
+                    <p>영업 수주 및 발주서 등록, 조회, 수정 및 현장 작업지시 발행 전용 패널</p>
                 </div>
                 <div class="card">
                     <h2>1. 주문서(발주서) 등록 및 관리</h2>
@@ -358,8 +359,16 @@ def dashboard():
                         <tbody id="orderTableBody"><tr><td colspan="11" style="text-align: center;">불러오는 중...</td></tr></tbody>
                     </table>
                 </div>
+            </div>
+
+            <!-- [탭 2] 작업지시 및 생산 투입 탭 -->
+            <div id="work-orders-tab" class="tab-content">
                 <div class="card">
-                    <h2>2. 현장 작업지시서 (Work Orders)</h2>
+                    <h1>작업지시서 및 생산 투입 관리</h1>
+                    <p>현장 작업지시서 발행 상태 확인 및 매니폴드 투입에 따른 BOM 자동 재고 차감 패널</p>
+                </div>
+                <div class="card">
+                    <h2>1. 현장 작업지시서 (Work Orders)</h2>
                     <table>
                         <thead>
                             <tr><th>지시 ID</th><th>주문번호</th><th>거래처명</th><th>품목명(요약)</th><th>생산 목표량</th><th>상태</th><th>관리</th></tr>
@@ -368,7 +377,7 @@ def dashboard():
                     </table>
                 </div>
                 <div class="card">
-                    <h2>3. 현장 매니폴드 생산 투입 로깅</h2>
+                    <h2>2. 현장 매니폴드 생산 투입 로깅</h2>
                     <form id="logForm" onsubmit="submitLog(event)">
                         <div class="form-grid">
                             <div class="form-group"><label>배치 번호</label><input type="text" id="batch_id" value="BATCH-2026-09" required></div>
@@ -392,6 +401,7 @@ def dashboard():
                 </div>
             </div>
 
+            <!-- [탭 3] 원료 마스터 관리 탭 -->
             <div id="materials-tab" class="tab-content">
                 <div class="card">
                     <h1>원료 마스터 관리 (Raw Material Master)</h1>
@@ -436,6 +446,7 @@ def dashboard():
                 </div>
             </div>
 
+            <!-- [탭 4] KT&G 상품 품목리스트 탭 -->
             <div id="ktng-tab" class="tab-content">
                 <div class="card">
                     <h1>KT&G 상품 품목리스트</h1>
@@ -470,6 +481,7 @@ def dashboard():
                 </div>
             </div>
 
+            <!-- [탭 5] BOM 조회 및 관리 탭 -->
             <div id="bom-tab" class="tab-content">
                 <div class="card">
                     <h1>BOM(소요량) 조회 및 관리</h1>
@@ -510,6 +522,7 @@ def dashboard():
             </div>
         </main>
 
+        <!-- 모달들 -->
         <div id="yearlyPreModal" class="modal-overlay">
             <div class="modal-content">
                 <div class="modal-header">
@@ -669,13 +682,20 @@ def dashboard():
 
             function switchTab(tabId) {
                 document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
-                document.getElementById(tabId).classList.add('active');
+                const targetTab = document.getElementById(tabId);
+                if (targetTab) targetTab.classList.add('active');
+
                 if (tabId === 'materials-tab') {
                     loadMaterials(1);
                 } else if (tabId === 'ktng-tab') {
                     loadKtngMaterials(1);
                 } else if (tabId === 'bom-tab') {
                     loadBomMaterials(1);
+                } else if (tabId === 'work-orders-tab') {
+                    loadWorkOrders();
+                    loadLogs();
+                } else if (tabId === 'orders-tab') {
+                    loadOrders();
                 }
             }
 
@@ -1265,24 +1285,80 @@ def dashboard():
                 });
             }
 
+            function submitOrder(event) {
+                event.preventDefault();
+                const payload = {
+                    order_no: document.getElementById('order_no').value.trim(),
+                    client_name: document.getElementById('client_name').value.trim(),
+                    manager_id: document.getElementById('manager_id').value.trim(),
+                    product_summary: document.getElementById('product_summary').value.trim(),
+                    order_qty: parseFloat(document.getElementById('order_qty').value) || 0,
+                    order_amount: parseFloat(document.getElementById('order_amount').value) || 0,
+                    due_date: document.getElementById('due_date').value,
+                    remark: document.getElementById('remark').value.trim()
+                };
+                fetch('/api/v1/orders', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.status === "SUCCESS") {
+                        alert(data.message);
+                        loadOrders();
+                    } else { alert("등록 실패"); }
+                });
+            }
+
             function loadOrders() {
                 fetch('/api/v1/orders').then(res => res.json()).then(data => {
                     const tbody = document.getElementById('orderTableBody');
                     tbody.innerHTML = '';
-                    if (!data.data || data.data.length === 0) return;
+                    if (!data.data || data.data.length === 0) {
+                        tbody.innerHTML = '<tr><td colspan="11" style="text-align: center;">등록된 주문서가 없습니다.</td></tr>';
+                        return;
+                    }
                     data.data.forEach(row => {
                         const tr = document.createElement('tr');
                         tr.innerHTML = `
-                            <td><span class="clickable-no" onclick='prepareEdit(${JSON.stringify(row)})'>${row.order_no}</span></td>
-                            <td>${row.client_name}</td><td>${row.manager_id}</td><td>${row.product_summary}</td>
+                            <td><strong>${row.order_no}</strong></td>
+                            <td>${row.client_name}</td>
+                            <td>${row.manager_id}</td>
+                            <td>${row.product_summary}</td>
                             <td>${row.order_qty.toLocaleString(undefined, {minimumFractionDigits: 3})} kg</td>
-                            <td>${row.order_amount.toLocaleString()} 원</td><td>${row.due_date}</td><td>${row.remark}</td>
+                            <td>${row.order_amount.toLocaleString()} 원</td>
+                            <td>${row.due_date}</td>
+                            <td>${row.remark || ''}</td>
                             <td><span class="badge badge-progress">${row.status}</span></td>
                             <td><button class="btn-action" onclick="createWorkOrder(${row.order_id})">지시발행</button></td>
-                            <td><button class="btn-delete" onclick="deleteOrder(${row.order_id})">삭제</button></td>
+                            <td><button class="btn-delete" onclick="deleteOrder(${row.order_id})" style="padding:4px 8px;">삭제</button></td>
                         `;
                         tbody.appendChild(tr);
                     });
+                });
+            }
+
+            function deleteOrder(orderId) {
+                if (!confirm("정말 이 주문서를 삭제하시겠습니까?")) return;
+                fetch(`/api/v1/orders/${orderId}`, { method: 'DELETE' })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.status === "SUCCESS") {
+                        alert(data.message);
+                        loadOrders();
+                    }
+                });
+            }
+
+            function createWorkOrder(orderId) {
+                fetch(`/api/v1/work-orders/${orderId}`, { method: 'POST' })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.status === "SUCCESS") {
+                        alert(data.message);
+                        loadOrders();
+                    } else { alert("발행 실패: " + (data.detail || "오류 발생")); }
                 });
             }
 
@@ -1290,17 +1366,35 @@ def dashboard():
                 fetch('/api/v1/work-orders').then(res => res.json()).then(data => {
                     const tbody = document.getElementById('workOrderTableBody');
                     tbody.innerHTML = '';
-                    if (!data.data || data.data.length === 0) return;
+                    if (!data.data || data.data.length === 0) {
+                        tbody.innerHTML = '<tr><td colspan="7" style="text-align: center;">발행된 작업지시서가 없습니다.</td></tr>';
+                        return;
+                    }
                     data.data.forEach(row => {
                         const tr = document.createElement('tr');
                         tr.innerHTML = `
-                            <td><strong>WO-${row.work_order_id}</strong></td><td>${row.order_no}</td><td>${row.client_name}</td>
-                            <td>${row.product_summary}</td><td>${row.target_qty.toLocaleString(undefined, {minimumFractionDigits: 3})} kg</td>
+                            <td><strong>WO-${row.work_order_id}</strong></td>
+                            <td>${row.order_no}</td>
+                            <td>${row.client_name}</td>
+                            <td>${row.product_summary}</td>
+                            <td>${row.target_qty.toLocaleString(undefined, {minimumFractionDigits: 3})} kg</td>
                             <td><span class="badge badge-success">${row.status}</span></td>
-                            <td><button class="btn-delete" onclick="deleteWorkOrder(${row.work_order_id})">취소</button></td>
+                            <td><button class="btn-delete" onclick="deleteWorkOrder(${row.work_order_id})" style="padding:4px 8px;">취소</button></td>
                         `;
                         tbody.appendChild(tr);
                     });
+                });
+            }
+
+            function deleteWorkOrder(woId) {
+                if (!confirm("정말 이 작업지시를 취소/삭제하시겠습니까?")) return;
+                fetch(`/api/v1/work-orders/${woId}`, { method: 'DELETE' })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.status === "SUCCESS") {
+                        alert(data.message);
+                        loadWorkOrders();
+                    }
                 });
             }
 
@@ -1335,16 +1429,26 @@ def dashboard():
                 fetch('/api/v1/production/batches').then(res => res.json()).then(data => {
                     const tbody = document.getElementById('logTableBody');
                     tbody.innerHTML = '';
-                    if (!data.data || data.data.length === 0) return;
+                    if (!data.data || data.data.length === 0) {
+                        tbody.innerHTML = '<tr><td colspan="6" style="text-align: center;">이력이 없습니다.</td></tr>';
+                        return;
+                    }
                     data.data.forEach(row => {
                         const tr = document.createElement('tr');
-                        tr.innerHTML = `<td>${row.log_id}</td><td><strong>${row.batch_id}</strong></td><td>${row.manifold_id}</td><td>${row.input_qty.toFixed(3)} kg</td><td>${row.operator_id}</td><td><span class="badge badge-success">${row.status}</span></td>`;
+                        tr.innerHTML = `
+                            <td>${row.log_id}</td>
+                            <td><strong>${row.batch_id}</strong></td>
+                            <td>${row.manifold_id}</td>
+                            <td>${row.input_qty.toFixed(3)} kg</td>
+                            <td>${row.operator_id}</td>
+                            <td><span class="badge badge-success">${row.status}</span></td>
+                        `;
                         tbody.appendChild(tr);
                     });
                 });
             }
 
-            loadOrders(); loadWorkOrders(); loadLogs(); loadKtngMaterials(1); loadBomMaterials(1);
+            loadOrders();
         </script>
     </body>
     </html>
