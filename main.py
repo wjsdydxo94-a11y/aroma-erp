@@ -1259,7 +1259,6 @@ def dashboard():
                 if (allBtn) allBtn.classList.add('active');
                 loadMaterials(1);
             }
-
             function searchKtngMaterials() {
                 currentKtngSearch = document.getElementById('ktngSearchInput').value.trim();
                 loadKtngMaterials(1);
