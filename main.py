@@ -413,19 +413,20 @@ def dashboard():
                 </div>
 
                 <div class="card">
-                    <h2>3. 현장 매니폴드 생산 투입 로깅</h2>
                     <form id="logForm" onsubmit="submitLog(event)">
-                        <div class="form-grid">
-                            <div class="form-group"><label>배치 번호</label><input type="text" id="batch_id" value="BATCH-2026-09" required></div>
-                            <div class="form-group"><label>매니폴드 ID</label><input type="text" id="manifold_id" value="MF-01" required></div>
-                            <div class="form-group"><label>투입 중량 (kg)</label><input type="number" step="0.001" id="input_qty" value="15.250" required></div>
-                            <div class="form-group"><label>작업자 ID</label><input type="text" id="operator_id" value="JEON" required></div>
-                        </div>
-                        <div class="btn-group">
-                            <button type="submit" class="btn-submit">생산 데이터 전송</button>
-                            <a href="/api/v1/production/export/csv" class="btn-export">ISO 감사용 CSV 다운로드</a>
-                        </div>
-                    </form>
+        <div class="form-grid">
+            <div class="form-group"><label>배치 번호</label><input type="text" id="batch_id" value="BATCH-2026-09" required></div>
+            <div class="form-group"><label>매니폴드 ID</label><input type="text" id="manifold_id" value="MF-01" required></div>
+            <div class="form-group"><label>투입 중량 (kg)</label><input type="number" step="0.001" id="input_qty" value="15.250" required></div>
+            <div class="form-group"><label>작업자 ID</label><input type="text" id="operator_id" value="JEON" required></div>
+            <div class="form-group"><label>생산 품목코드 (BOM 연동)</label><input type="text" id="log_product_code" value="1000052941" required></div>
+        </div>
+        <div class="btn-group">
+            <button type="submit" class="btn-submit">생산 데이터 전송 및 재고 차감</button>
+            <a href="/api/v1/production/export/csv" class="btn-export">ISO 감사용 CSV 다운로드</a>
+        </div>
+    </form>
+                    
 
                     <h3 style="margin-top: 20px; font-size: 14px; color: #334155;">실시간 투입 이력</h3>
                     <table>
@@ -1471,6 +1472,35 @@ def dashboard():
                 });
             }
 
+ function submitLog(event) {
+            event.preventDefault();
+            const payload = {
+                batch_id: document.getElementById('batch_id').value,
+                manifold_id: document.getElementById('manifold_id').value,
+                input_qty: parseFloat(document.getElementById('input_qty').value) || 0,
+                operator_id: document.getElementById('operator_id').value,
+                product_code: document.getElementById('log_product_code').value.trim()
+            };
+            
+            fetch('/api/v1/production/batches/log', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.status === "SUCCESS") {
+                    let msg = data.message;
+                    if (data.deduction && data.deduction.length > 0) {
+                        msg += "\n[BOM 재고 자동 차감 내역]\n" + data.deduction.join(", ");
+                    }
+                    alert(msg);
+                    loadLogs();
+                } else {
+                    alert("전송 실패");
+                }
+            });
+        }
             function loadLogs() {
                 fetch('/api/v1/production/batches').then(res => res.json()).then(data => {
                     const tbody = document.getElementById('logTableBody');
