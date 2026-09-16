@@ -104,6 +104,7 @@ def init_db():
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS work_orders (
             work_order_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            work_order_no TEXT,
             order_id INTEGER,
             order_no TEXT,
             client_name TEXT,
@@ -113,6 +114,12 @@ def init_db():
             FOREIGN KEY (order_id) REFERENCES orders (order_id)
         )
     ''')
+    try:
+        cursor.execute("ALTER TABLE work_orders ADD COLUMN work_order_no TEXT;")
+        conn.commit()
+    except Exception:
+        pass
+
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS bom_headers (
             bom_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -372,7 +379,7 @@ def dashboard():
                     <h2>1. 주문서(발주서) 등록 및 관리</h2>
                     <form id="orderForm" onsubmit="submitOrder(event)">
                         <div class="form-grid">
-                            <div class="form-group"><label>일자 (일자-No.)</label><input type="text" id="order_no" value="2026/09/10 -1" required></div>
+                            <div class="form-group"><label>일자 (일자-No.)</label><input type="text" id="order_no" value="2026/09/16 -1" required></div>
                             <div class="form-group"><label>거래처명</label><input type="text" id="client_name" value="에이치비티 주식회사" required></div>
                             <div class="form-group"><label>품목코드 (Code)</label><input type="text" id="product_code" placeholder="코드 입력시 품목명 자동완성" oninput="onOrderCodeInput(this.value)" required></div>
                             <div class="form-group"><label>품목명 (Product)</label><input type="text" id="product_name" placeholder="품목명 입력시 코드 자동완성" oninput="onOrderNameInput(this.value)" required></div>
@@ -404,9 +411,9 @@ def dashboard():
                     <h2>1. 현장 작업지시서 (Work Orders)</h2>
                     <table>
                         <thead>
-                            <tr><th>지시 ID</th><th>주문번호</th><th>거래처명</th><th>품목명(요약)</th><th>생산 목표량</th><th>상태</th><th>출력</th><th>관리</th></tr>
+                            <tr><th>지시번호</th><th>주문번호</th><th>거래처명</th><th>생산 품목</th><th>생산 목표량</th><th>출력</th><th>관리</th></tr>
                         </thead>
-                        <tbody id="workOrderTableBody"><tr><td colspan="8" style="text-align: center;">발행된 작업지시서가 없습니다.</td></tr></tbody>
+                        <tbody id="workOrderTableBody"><tr><td colspan="7" style="text-align: center;">발행된 작업지시서가 없습니다.</td></tr></tbody>
                     </table>
                 </div>
                 <div class="card">
@@ -1242,7 +1249,6 @@ def dashboard():
                 });
             }
 
-            // 주문서 폼에서 품목코드 입력 시 품목명 자동완성
             function onOrderCodeInput(codeVal) {
                 const code = codeVal.trim();
                 if (code.length < 2) return;
@@ -1258,7 +1264,6 @@ def dashboard():
                 }).catch(err => {});
             }
 
-            // 주문서 폼에서 품목명 입력 시 품목코드 자동완성
             function onOrderNameInput(nameVal) {
                 const name = nameVal.trim();
                 if (name.length < 2) return;
@@ -1555,18 +1560,17 @@ def dashboard():
                     const tbody = document.getElementById('workOrderTableBody');
                     tbody.innerHTML = '';
                     if (!data.data || data.data.length === 0) {
-                        tbody.innerHTML = '<tr><td colspan="8" style="text-align: center;">발행된 작업지시서가 없습니다.</td></tr>';
+                        tbody.innerHTML = '<tr><td colspan="7" style="text-align: center;">발행된 작업지시서가 없습니다.</td></tr>';
                         return;
                     }
                     data.data.forEach(row => {
                         const tr = document.createElement('tr');
                         tr.innerHTML = `
-                            <td><strong>WO-${row.work_order_id}</strong></td>
+                            <td><strong>${row.work_order_no || 'WO-' + row.work_order_id}</strong></td>
                             <td>${row.order_no}</td>
                             <td>${row.client_name}</td>
                             <td>${row.product_summary}</td>
                             <td>${row.target_qty.toLocaleString(undefined, {minimumFractionDigits: 3})} kg</td>
-                            <td><span class="badge badge-success">${row.status}</span></td>
                             <td><button class="btn-action" onclick="printWorkOrder(${row.work_order_id})" style="background:#10b981;">인쇄</button></td>
                             <td><button class="btn-delete" onclick="deleteWorkOrder(${row.work_order_id})" style="padding:4px 8px;">취소</button></td>
                         `;
@@ -1588,30 +1592,31 @@ def dashboard():
 
                     let itemsHtml = '';
                     if (items.length === 0) {
-                        itemsHtml = '<tr><td colspan="7" style="text-align:center; padding:15px;">등록된 BOM 구성 원료가 없습니다. (BOM을 먼저 등록해 주세요)</td></tr>';
+                        itemsHtml = '<tr><td colspan="9" style="text-align:center; padding:15px;">등록된 BOM 구성 원료가 없습니다. (BOM을 먼저 등록해 주세요)</td></tr>';
                     } else {
                         items.forEach((item, idx) => {
                             const reqQty = item.qty * wo.target_qty;
-                            const stockQty = item.stock_qty || 0;
+                            const traitBadge = item.trait ? `<span style="font-weight:bold; color:${item.trait==='P'?'#2563eb':'#d97706'};">${item.trait}</span>` : '';
                             itemsHtml += `
                                 <tr>
-                                    <td style="border:1px solid #333; padding:8px; text-align:center;">${idx+1}</td>
-                                    <td style="border:1px solid #333; padding:8px; text-align:center;">${item.category || '원재료'}</td>
-                                    <td style="border:1px solid #333; padding:8px; text-align:center;">${item.material_code}</td>
-                                    <td style="border:1px solid #333; padding:8px;">${item.material_name}</td>
-                                    <td style="border:1px solid #333; padding:8px; text-align:right;">${stockQty.toLocaleString(undefined, {minimumFractionDigits: 3})} ${item.unit || 'KG'}</td>
-                                    <td style="border:1px solid #333; padding:8px; text-align:right; font-weight:bold;">${reqQty.toLocaleString(undefined, {minimumFractionDigits: 3})} ${item.unit || 'KG'}</td>
-                                    <td style="border:1px solid #333; padding:8px; text-align:center;"></td>
+                                    <td style="border:1px solid #333; padding:6px; text-align:center;">${idx+1}</td>
+                                    <td style="border:1px solid #333; padding:6px; text-align:center;">${traitBadge}</td>
+                                    <td style="border:1px solid #333; padding:6px; text-align:center;">${item.material_code}</td>
+                                    <td style="border:1px solid #333; padding:6px;">${item.material_name}</td>
+                                    <td style="border:1px solid #333; padding:6px; text-align:right; font-weight:bold;">${reqQty.toLocaleString(undefined, {minimumFractionDigits: 3})} ${item.unit || 'KG'}</td>
+                                    <td style="border:1px solid #333; padding:6px; text-align:right;"></td>
+                                    <td style="border:1px solid #333; padding:6px; text-align:center;"></td>
+                                    <td style="border:1px solid #333; padding:6px; text-align:center;"></td>
                                 </tr>
                             `;
                         });
                     }
 
-                    const printWin = window.open('', '_blank', 'width=950,height=900');
+                    const printWin = window.open('', '_blank', 'width=1000,height=900');
                     printWin.document.write(`
                         <html>
                         <head>
-                            <title>현장 작업지시서 - WO-${wo.work_order_id}</title>
+                            <title>현장 작업지시서 - ${wo.work_order_no || 'WO-' + wo.work_order_id}</title>
                             <style>
                                 body { font-family: 'Malgun Gothic', sans-serif; padding: 20px; color: #000; }
                                 h1 { text-align: center; font-size: 24px; margin-bottom: 5px; border-bottom: 2px solid #000; padding-bottom: 10px; }
@@ -1634,7 +1639,7 @@ def dashboard():
                             <table class="info-table">
                                 <tr>
                                     <th>지시서 번호</th>
-                                    <td><b>WO-${wo.work_order_id}</b></td>
+                                    <td><b>${wo.work_order_no || 'WO-' + wo.work_order_id}</b></td>
                                     <th>주문 번호</th>
                                     <td>${wo.order_no}</td>
                                 </tr>
@@ -1646,29 +1651,28 @@ def dashboard():
                                 </tr>
                                 <tr>
                                     <th>생산 품목</th>
-                                    <td><b>${wo.product_summary}</b></td>
-                                    <th>작업자</th>
-                                    <td><input type="text" placeholder="작업자 성명 입력" style="width:100%; border:1px solid #ccc; padding:4px; font-size:13px;"></td>
+                                    <td colspan="3"><b>${wo.product_summary}</b></td>
                                 </tr>
                                 <tr>
-                                    <th>지시 상태</th>
-                                    <td>${wo.status}</td>
+                                    <th>작업자</th>
+                                    <td><input type="text" placeholder="성명 수기 작성" style="width:100%; border:1px solid #ccc; padding:4px; font-size:13px;"></td>
                                     <th>작업시간</th>
                                     <td><input type="text" placeholder="예: 09:00 ~ 12:00" style="width:100%; border:1px solid #ccc; padding:4px; font-size:13px;"></td>
                                 </tr>
                             </table>
 
-                            <div class="section-title">2. BOM 투입 원료 소요량 산정 내역</div>
+                            <div class="section-title">2. BOM 투입 원료 소요량 산정 내역 (특성: P=분말/결정형, S=응고성)</div>
                             <table class="bom-table">
                                 <thead>
                                     <tr style="background: #f0f0f0; text-align: center;">
                                         <th style="border:1px solid #333; padding:8px; width:6%;">순번</th>
-                                        <th style="border:1px solid #333; padding:8px; width:14%;">원료 특성</th>
+                                        <th style="border:1px solid #333; padding:8px; width:8%;">특성</th>
                                         <th style="border:1px solid #333; padding:8px; width:16%;">원료코드</th>
-                                        <th style="border:1px solid #333; padding:8px; width:28%;">원료명</th>
-                                        <th style="border:1px solid #333; padding:8px; width:13%;">재고량</th>
-                                        <th style="border:1px solid #333; padding:8px; width:13%;">소요량</th>
-                                        <th style="border:1px solid #333; padding:8px; width:10%;">사용 lot</th>
+                                        <th style="border:1px solid #333; padding:8px; width:30%;">원료명</th>
+                                        <th style="border:1px solid #333; padding:8px; width:15%;">이론 소요량</th>
+                                        <th style="border:1px solid #333; padding:8px; width:13%;">실제 칭량값</th>
+                                        <th style="border:1px solid #333; padding:8px; width:12%;">사용 LOT</th>
+                                        <th style="border:1px solid #333; padding:8px; width:10%;">서명</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -1740,7 +1744,7 @@ def dashboard():
                         tr.innerHTML = `
                             <td>${row.log_id}</td>
                             <td><strong>${row.batch_id}</strong></td>
-                            <td>${row.manifold_id}</td>
+                            <td>${row.manifold_/id}</td>
                             <td>${row.input_qty.toFixed(3)} kg</td>
                             <td>${row.operator_id}</td>
                             <td><span class="badge badge-success">${row.status}</span></td>
