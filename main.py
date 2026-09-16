@@ -16,7 +16,6 @@ app.include_router(materials.router)
 app.include_router(orders.router)
 app.include_router(boms.router)
 
-# 데이터베이스 백업 다운로드 및 복구 API (데이터 유실 방지 안전장치)
 @app.get("/api/v1/system/backup")
 def download_backup():
     db_file = "erp_factory.db"
@@ -85,6 +84,8 @@ def init_db():
             order_no TEXT,
             client_name TEXT,
             manager_id TEXT,
+            product_code TEXT,
+            product_name TEXT,
             product_summary TEXT,
             order_qty REAL,
             order_amount REAL,
@@ -93,6 +94,13 @@ def init_db():
             status TEXT
         )
     ''')
+    for col_col in [("product_code", "TEXT"), ("product_name", "TEXT")]:
+        try:
+            cursor.execute(f"ALTER TABLE orders ADD COLUMN {col_col[0]} {col_col[1]};")
+            conn.commit()
+        except Exception:
+            pass
+
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS work_orders (
             work_order_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -296,7 +304,7 @@ def dashboard():
             .pagination button.active { background: #0077FF; color: white; border-color: #0077FF; }
             .pagination button:disabled { background: #f1f5f9; color: #94a3b8; cursor: not-allowed; }
             .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); justify-content: center; align-items: center; z-index: 1000; }
-            .modal-content { background: white; padding: 25px; border-radius: 10px; width: 900px; max-height: 90vh; overflow-y: auto; box-shadow: 0 4px 20px rgba(0,0,0,0.2); }
+            .modal-content { background: white; padding: 25px; border-radius: 10px; width: 950px; max-height: 90vh; overflow-y: auto; box-shadow: 0 4px 20px rgba(0,0,0,0.2); }
             .modal-header { font-size: 16px; font-weight: bold; margin-bottom: 15px; border-bottom: 2px solid #cbd5e1; padding-bottom: 8px; display: flex; justify-content: space-between; align-items: center; color: #1e293b; }
             .modal-close { cursor: pointer; font-size: 18px; color: #64748b; }
             .modal-body .form-group { margin-bottom: 12px; }
@@ -364,14 +372,14 @@ def dashboard():
                     <h2>1. 주문서(발주서) 등록 및 관리</h2>
                     <form id="orderForm" onsubmit="submitOrder(event)">
                         <div class="form-grid">
-                            <div class="form-group"><label>일자-No.</label><input type="text" id="order_no" value="2026/09/10 -1" required></div>
+                            <div class="form-group"><label>일자 (일자-No.)</label><input type="text" id="order_no" value="2026/09/10 -1" required></div>
                             <div class="form-group"><label>거래처명</label><input type="text" id="client_name" value="에이치비티 주식회사" required></div>
-                            <div class="form-group"><label>담당 사원명</label><input type="text" id="manager_id" value="전용태" required></div>
-                            <div class="form-group"><label>품목명 요약</label><input type="text" id="product_summary" value="TROPICAL AR-4094" required></div>
-                            <div class="form-group"><label>주문수량합계 (kg)</label><input type="number" step="0.001" id="order_qty" value="2000.000" required></div>
-                            <div class="form-group"><label>주문금액합계 (원)</label><input type="number" id="order_amount" value="0" required></div>
+                            <div class="form-group"><label>품목코드 (Code)</label><input type="text" id="product_code" placeholder="코드 입력시 품목명 자동완성" oninput="onOrderCodeInput(this.value)" required></div>
+                            <div class="form-group"><label>품목명 (Product)</label><input type="text" id="product_name" placeholder="품목명 입력시 코드 자동완성" oninput="onOrderNameInput(this.value)" required></div>
+                            <div class="form-group"><label>수량 (kg)</label><input type="number" step="0.001" id="order_qty" value="2000.000" required></div>
+                            <div class="form-group"><label>금액 (원)</label><input type="number" id="order_amount" value="0" required></div>
                             <div class="form-group"><label>납기일자</label><input type="date" id="due_date" value="2026-09-25" required></div>
-                            <div class="form-group"><label>비고</label><input type="text" id="remark" value="정상"></div>
+                            <div class="form-group"><label>비고, 적요</label><input type="text" id="remark" value="정상"></div>
                         </div>
                         <div class="btn-group" id="orderBtnContainer">
                             <button type="submit" id="orderSubmitBtn" class="btn-order">신규 주문서 등록</button>
@@ -380,7 +388,7 @@ def dashboard():
                     <h3 style="margin-top: 20px; font-size: 14px; color: #334155;">등록된 주문서 목록</h3>
                     <table>
                         <thead>
-                            <tr><th>일자-No.</th><th>거래처명</th><th>담당명</th><th>품목명(요약)</th><th>주문수량</th><th>주문금액</th><th>납기일자</th><th>비고</th><th>상태</th><th>작업지시</th><th>관리</th></tr>
+                            <tr><th>일자-No.</th><th>거래처명</th><th>품목코드</th><th>품목명</th><th>주문수량</th><th>주문금액</th><th>납기일자</th><th>비고</th><th>상태</th><th>작업지시</th><th>관리</th></tr>
                         </thead>
                         <tbody id="orderTableBody"><tr><td colspan="11" style="text-align: center;">불러오는 중...</td></tr></tbody>
                     </table>
@@ -596,7 +604,6 @@ def dashboard():
             </div>
         </div>
 
-        <!-- 고도화된 BOM 등록/관리 모달 -->
         <div id="bomModal" class="modal-overlay">
             <div class="modal-content" style="width: 950px;">
                 <div class="modal-header">
@@ -1235,6 +1242,38 @@ def dashboard():
                 });
             }
 
+            // 주문서 폼에서 품목코드 입력 시 품목명 자동완성
+            function onOrderCodeInput(codeVal) {
+                const code = codeVal.trim();
+                if (code.length < 2) return;
+                fetch(`/api/v1/materials/lookup?code=${encodeURIComponent(code)}`)
+                .then(res => res.json())
+                .then(data => {
+                    if (data.status === "SUCCESS" && data.matches && data.matches.length > 0) {
+                        const m = data.matches[0];
+                        if (m.material_name_kr) {
+                            document.getElementById('product_name').value = m.material_name_kr;
+                        }
+                    }
+                }).catch(err => {});
+            }
+
+            // 주문서 폼에서 품목명 입력 시 품목코드 자동완성
+            function onOrderNameInput(nameVal) {
+                const name = nameVal.trim();
+                if (name.length < 2) return;
+                fetch(`/api/v1/materials?search=${encodeURIComponent(name)}&limit=1`)
+                .then(res => res.json())
+                .then(data => {
+                    if (data.status === "SUCCESS" && data.data && data.data.length > 0) {
+                        const m = data.data[0];
+                        if (m.material_code) {
+                            document.getElementById('product_code').value = m.material_code;
+                        }
+                    }
+                }).catch(err => {});
+            }
+
             function saveBomData() {
                 const productCode = currentBomProductCode;
                 const version = document.getElementById('bomVersionSelect').value;
@@ -1439,8 +1478,8 @@ def dashboard():
                 const payload = {
                     order_no: document.getElementById('order_no').value.trim(),
                     client_name: document.getElementById('client_name').value.trim(),
-                    manager_id: document.getElementById('manager_id').value.trim(),
-                    product_summary: document.getElementById('product_summary').value.trim(),
+                    product_code: document.getElementById('product_code').value.trim(),
+                    product_name: document.getElementById('product_name').value.trim(),
                     order_qty: parseFloat(document.getElementById('order_qty').value) || 0,
                     order_amount: parseFloat(document.getElementById('order_amount').value) || 0,
                     due_date: document.getElementById('due_date').value,
@@ -1473,8 +1512,8 @@ def dashboard():
                         tr.innerHTML = `
                             <td><strong>${row.order_no}</strong></td>
                             <td>${row.client_name}</td>
-                            <td>${row.manager_id}</td>
-                            <td>${row.product_summary}</td>
+                            <td>${row.product_code || ''}</td>
+                            <td>${row.product_name || row.product_summary || ''}</td>
                             <td>${row.order_qty.toLocaleString(undefined, {minimumFractionDigits: 3})} kg</td>
                             <td>${row.order_amount.toLocaleString()} 원</td>
                             <td>${row.due_date}</td>
