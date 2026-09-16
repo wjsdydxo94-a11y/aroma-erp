@@ -34,7 +34,9 @@ def get_orders():
 def create_order(order: OrderModel):
     conn = get_db_connection()
     cursor = conn.cursor()
-    summary = order.product_name if order.product_name else order.product_summary
+    
+    # 품목코드와 품목명을 조합하여 보기 편한 요약명 생성
+    summary = order.product_summary
     if order.product_code and order.product_name:
         summary = f"[{order.product_code}] {order.product_name}"
     elif order.product_name:
@@ -78,10 +80,17 @@ def create_work_order(order_id: int):
         conn.close()
         raise HTTPException(status_code=404, detail="주문서를 찾을 수 없습니다.")
     
+    # 작업지시서 생성 시 product_summary에 코드나 품목명 저장
+    p_summary = order["product_summary"]
+    if order["product_code"]:
+        p_summary = order["product_code"]
+    elif order["product_name"]:
+        p_summary = order["product_name"]
+
     cursor.execute("""
         INSERT INTO work_orders (order_id, order_no, client_name, product_summary, target_qty, status)
         VALUES (?, ?, ?, ?, ?, '생산대기')
-    """, (order["order_id"], order["order_no"], order["client_name"], order["product_summary"], order["order_qty"]))
+    """, (order["order_id"], order["order_no"], order["client_name"], p_summary, order["order_qty"]))
     
     cursor.execute("UPDATE orders SET status = '지시발행완료' WHERE order_id = ?", (order_id,))
     conn.commit()
@@ -107,8 +116,17 @@ def print_work_order(work_order_id: int):
         conn.close()
         raise HTTPException(status_code=404, detail="작업지시서를 찾을 수 없습니다.")
     
-    cursor.execute("SELECT * FROM bom_headers WHERE product_code = ? OR product_name = ?", (wo["product_summary"], wo["product_summary"]))
+    summary = str(wo["product_summary"]).strip()
+    
+    # BOM 헤더를 유연하게 탐색 (정확한 품목코드, 포함된 품목코드, 혹은 제품명 매칭)
+    cursor.execute("""
+        SELECT * FROM bom_headers 
+        WHERE product_code = ? 
+           OR product_name = ? 
+           OR ? LIKE '%' || product_code || '%'
+    """, (summary, summary, summary))
     bom_h = cursor.fetchone()
+    
     items = []
     if bom_h:
         cursor.execute("SELECT * FROM bom_items WHERE bom_id = ?", (bom_h["bom_id"],))
