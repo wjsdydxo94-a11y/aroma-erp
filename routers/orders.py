@@ -12,8 +12,10 @@ def get_db_connection():
 class OrderModel(BaseModel):
     order_no: str
     client_name: str
-    manager_id: str
-    product_summary: str
+    manager_id: str = "전용태"
+    product_code: str = ""
+    product_name: str = ""
+    product_summary: str = ""
     order_qty: float
     order_amount: float
     due_date: str
@@ -32,10 +34,18 @@ def get_orders():
 def create_order(order: OrderModel):
     conn = get_db_connection()
     cursor = conn.cursor()
+    summary = order.product_name if order.product_name else order.product_summary
+    if order.product_code and order.product_name:
+        summary = f"[{order.product_code}] {order.product_name}"
+    elif order.product_name:
+        summary = order.product_name
+    elif order.product_code:
+        summary = order.product_code
+
     cursor.execute("""
-        INSERT INTO orders (order_no, client_name, manager_id, product_summary, order_qty, order_amount, due_date, remark, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, '진행중')
-    """, (order.order_no, order.client_name, order.manager_id, order.product_summary, order.order_qty, order.order_amount, order.due_date, order.remark))
+        INSERT INTO orders (order_no, client_name, manager_id, product_code, product_name, product_summary, order_qty, order_amount, due_date, remark, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '진행중')
+    """, (order.order_no, order.client_name, order.manager_id, order.product_code, order.product_name, summary, order.order_qty, order.order_amount, order.due_date, order.remark))
     conn.commit()
     conn.close()
     return {"status": "SUCCESS", "message": "주문서가 등록되었습니다."}
