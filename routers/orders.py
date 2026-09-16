@@ -80,7 +80,6 @@ def create_work_order(order_id: int):
         conn.close()
         raise HTTPException(status_code=404, detail="주문서를 찾을 수 없습니다.")
     
-    # 작업지시서 번호 자동 채번 (YYYYMMDD-N 형식)
     today_str = datetime.now().strftime("%Y%m%d")
     cursor.execute("SELECT COUNT(*) FROM work_orders WHERE work_order_no LIKE ?", (f"{today_str}%",))
     count = cursor.fetchone()[0]
@@ -112,10 +111,8 @@ def delete_work_order(work_order_id: int):
 def get_material_trait(code: str, name: str) -> str:
     c = (code or "").upper()
     n = (name or "").upper()
-    # 분말/결정형 원료 (P)
     if "-T" in c or "CRYSTALS" in n or "POWDER" in n or "분말" in n:
         return "P"
-    # 응고/결빙성 원료 (S)
     solid_keywords = ["MENTHOL", "CAMPHOR", "BORNEOL", "멘톨", "캠퍼", "보르네올", "SOLID"]
     if any(kw in c or kw in n for kw in solid_keywords):
         return "S"
@@ -170,7 +167,6 @@ def print_work_order(work_order_id: int):
             else:
                 item_dict["stock_qty"] = 0.0
             
-            # P 또는 S 특성 부여
             item_dict["trait"] = get_material_trait(item_dict["material_code"], item_dict["material_name"])
             items.append(item_dict)
     
