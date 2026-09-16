@@ -1592,7 +1592,7 @@ def dashboard():
 
                     let itemsHtml = '';
                     if (items.length === 0) {
-                        itemsHtml = '<tr><td colspan="9" style="text-align:center; padding:15px;">등록된 BOM 구성 원료가 없습니다. (BOM을 먼저 등록해 주세요)</td></tr>';
+                        itemsHtml = '<tr><td colspan="8" style="text-align:center; padding:15px;">등록된 BOM 구성 원료가 없습니다. (BOM을 먼저 등록해 주세요)</td></tr>';
                     } else {
                         items.forEach((item, idx) => {
                             const reqQty = item.qty * wo.target_qty;
@@ -1744,7 +1744,7 @@ def dashboard():
                         tr.innerHTML = `
                             <td>${row.log_id}</td>
                             <td><strong>${row.batch_id}</strong></td>
-                            <td>${row.manifold_/id}</td>
+                            <td>${row.manifold_id}</td>
                             <td>${row.input_qty.toFixed(3)} kg</td>
                             <td>${row.operator_id}</td>
                             <td><span class="badge badge-success">${row.status}</span></td>
