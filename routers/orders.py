@@ -35,7 +35,6 @@ def create_order(order: OrderModel):
     conn = get_db_connection()
     cursor = conn.cursor()
     
-    # 품목코드와 품목명을 조합하여 보기 편한 요약명 생성
     summary = order.product_summary
     if order.product_code and order.product_name:
         summary = f"[{order.product_code}] {order.product_name}"
@@ -80,12 +79,7 @@ def create_work_order(order_id: int):
         conn.close()
         raise HTTPException(status_code=404, detail="주문서를 찾을 수 없습니다.")
     
-    # 작업지시서 생성 시 product_summary에 코드나 품목명 저장
-    p_summary = order["product_summary"]
-    if order["product_code"]:
-        p_summary = order["product_code"]
-    elif order["product_name"]:
-        p_summary = order["product_name"]
+    p_summary = order["product_code"] if order["product_code"] else order["product_summary"]
 
     cursor.execute("""
         INSERT INTO work_orders (order_id, order_no, client_name, product_summary, target_qty, status)
@@ -118,14 +112,25 @@ def print_work_order(work_order_id: int):
     
     summary = str(wo["product_summary"]).strip()
     
-    # BOM 헤더를 유연하게 탐색 (정확한 품목코드, 포함된 품목코드, 혹은 제품명 매칭)
-    cursor.execute("""
-        SELECT * FROM bom_headers 
-        WHERE product_code = ? 
-           OR product_name = ? 
-           OR ? LIKE '%' || product_code || '%'
-    """, (summary, summary, summary))
-    bom_h = cursor.fetchone()
+    # 코드 변형을 생성하여 BOM 헤더를 유연하게 탐색 (예: 18006 <-> AR-18006)
+    code_variants = [summary]
+    if summary.isdigit():
+        code_variants.append(f"AR-{summary}")
+    elif summary.startswith("AR-"):
+        code_variants.append(summary.replace("AR-", ""))
+
+    bom_h = None
+    for variant in code_variants:
+        cursor.execute("""
+            SELECT * FROM bom_headers 
+            WHERE product_code = ? 
+               OR product_name = ? 
+               OR ? LIKE '%' || product_code || '%'
+               OR product_code LIKE '%' || ? || '%'
+        """, (variant, variant, variant, variant))
+        bom_h = cursor.fetchone()
+        if bom_h:
+            break
     
     items = []
     if bom_h:
