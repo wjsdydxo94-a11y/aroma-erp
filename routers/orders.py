@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 import sqlite3
+from datetime import datetime
 
 router = APIRouter(prefix="/api/v1", tags=["orders"])
 
@@ -79,17 +80,25 @@ def create_work_order(order_id: int):
         conn.close()
         raise HTTPException(status_code=404, detail="주문서를 찾을 수 없습니다.")
     
-    p_summary = order["product_code"] if order["product_code"] else order["product_summary"]
+    # 작업지시서 번호 자동 채번 (YYYYMMDD-N 형식)
+    today_str = datetime.now().strftime("%Y%m%d")
+    cursor.execute("SELECT COUNT(*) FROM work_orders WHERE work_order_no LIKE ?", (f"{today_str}%",))
+    count = cursor.fetchone()[0]
+    wo_no = f"{today_str}-{count + 1}"
+
+    p_code = order["product_code"] or ""
+    p_name = order["product_name"] or order["product_summary"] or ""
+    p_summary = f"[{p_code}] {p_name}" if p_code else p_name
 
     cursor.execute("""
-        INSERT INTO work_orders (order_id, order_no, client_name, product_summary, target_qty, status)
-        VALUES (?, ?, ?, ?, ?, '생산대기')
-    """, (order["order_id"], order["order_no"], order["client_name"], p_summary, order["order_qty"]))
+        INSERT INTO work_orders (work_order_no, order_id, order_no, client_name, product_summary, target_qty, status)
+        VALUES (?, ?, ?, ?, ?, ?, '생산대기')
+    """, (wo_no, order["order_id"], order["order_no"], order["client_name"], p_summary, order["order_qty"]))
     
     cursor.execute("UPDATE orders SET status = '지시발행완료' WHERE order_id = ?", (order_id,))
     conn.commit()
     conn.close()
-    return {"status": "SUCCESS", "message": "작업지시서가 발행되었습니다."}
+    return {"status": "SUCCESS", "message": f"작업지시서({wo_no})가 발행되었습니다."}
 
 @router.delete("/work-orders/{work_order_id}")
 def delete_work_order(work_order_id: int):
@@ -99,6 +108,18 @@ def delete_work_order(work_order_id: int):
     conn.commit()
     conn.close()
     return {"status": "SUCCESS", "message": "작업지시가 취소되었습니다."}
+
+def get_material_trait(code: str, name: str) -> str:
+    c = (code or "").upper()
+    n = (name or "").upper()
+    # 분말/결정형 원료 (P)
+    if "-T" in c or "CRYSTALS" in n or "POWDER" in n or "분말" in n:
+        return "P"
+    # 응고/결빙성 원료 (S)
+    solid_keywords = ["MENTHOL", "CAMPHOR", "BORNEOL", "멘톨", "캠퍼", "보르네올", "SOLID"]
+    if any(kw in c or kw in n for kw in solid_keywords):
+        return "S"
+    return ""
 
 @router.get("/work-orders/{work_order_id}/print")
 def print_work_order(work_order_id: int):
@@ -112,9 +133,13 @@ def print_work_order(work_order_id: int):
     
     summary = str(wo["product_summary"]).strip()
     
-    # 코드 변형을 생성하여 BOM 헤더를 유연하게 탐색 (예: 18006 <-> AR-18006)
     code_variants = [summary]
-    if summary.isdigit():
+    if "[" in summary and "]" in summary:
+        code_part = summary.split("]")[0].replace("[", "").strip()
+        code_variants.append(code_part)
+        if code_part.isdigit():
+            code_variants.append(f"AR-{code_part}")
+    elif summary.isdigit():
         code_variants.append(f"AR-{summary}")
     elif summary.startswith("AR-"):
         code_variants.append(summary.replace("AR-", ""))
@@ -141,11 +166,12 @@ def print_work_order(work_order_id: int):
             cursor.execute("SELECT category, stock_qty FROM material_masters WHERE material_code = ?", (item_dict["material_code"],))
             mat = cursor.fetchone()
             if mat:
-                item_dict["category"] = mat["category"] or "원재료"
                 item_dict["stock_qty"] = mat["stock_qty"] or 0.0
             else:
-                item_dict["category"] = "원재료"
                 item_dict["stock_qty"] = 0.0
+            
+            # P 또는 S 특성 부여
+            item_dict["trait"] = get_material_trait(item_dict["material_code"], item_dict["material_name"])
             items.append(item_dict)
     
     conn.close()
